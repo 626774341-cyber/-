@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>盐与光 · 记忆之形 DEMO — 第六组</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#0d0d14;overflow:hidden;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:#e8e6f0;user-select:none}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+  canvas{background:#101018;image-rendering:pixelated;box-shadow:0 0 60px #000}
+  /* ---------- HUD ---------- */
+  .hud{position:fixed;pointer-events:none;z-index:10}
+  #hud-tl{top:14px;left:14px;width:240px}
+  .bar{height:14px;background:#000a;border:1px solid #ffffff2e;border-radius:7px;overflow:hidden;margin-bottom:6px;position:relative}
+  .bar .fill{height:100%;transition:width .15s}
+  .bar label{position:absolute;left:8px;top:-1px;font-size:10px;line-height:14px;color:#fffc;text-shadow:0 1px 2px #000}
+  #hp-fill{background:linear-gradient(90deg,#e86a7c,#f5a0ad);width:100%}
+  #gel-fill{background:linear-gradient(90deg,#4fa8e8,#7fd4ff);width:100%}
+  #form-chip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;background:#000a;border:1px solid #ffffff2e}
+  #hud-tr{top:14px;right:14px;text-align:right;font-size:13px;text-shadow:0 1px 2px #000}
+  #tide-warn{color:#7fd4ff;font-weight:bold;display:none}
+  #tracker{position:fixed;right:14px;top:70px;width:250px;background:#0009;border:1px solid #ffffff26;border-radius:8px;padding:8px 10px;font-size:12px;z-index:10;pointer-events:none}
+  #tracker h4{margin:0 0 4px;font-size:12px;color:#ffd98a}
+  #skillbar{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:8px;z-index:10;pointer-events:none}
+  .skill{min-width:86px;text-align:center;background:#000a;border:1px solid #ffffff2e;border-radius:8px;padding:4px 8px;font-size:11px}
+  .skill .k{color:#ffd98a}
+  .skill.locked{opacity:.4}
+  #prompt{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);background:#000c;border:1px solid #ffd98a66;
+    border-radius:8px;padding:6px 14px;font-size:13px;display:none;z-index:11}
+  #prompt b{color:#ffd98a}
+  #toasts{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+  .toast{background:#000c;border:1px solid #ffffff33;border-radius:8px;padding:6px 16px;font-size:13px;animation:tin .25s ease-out}
+  .toast.good{border-color:#9fe8a0}
+  @keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1}}
+  /* ---------- 对话 ---------- */
+  #dialogue{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);width:640px;max-width:92vw;
+    background:#12121eee;border:1px solid #ffd98a55;border-radius:12px;padding:14px 18px;z-index:30;display:none}
+  #dlg-speaker{color:#ffd98a;font-size:13px;margin-bottom:6px}
+  #dlg-text{font-size:15px;line-height:1.7;min-height:52px;white-space:pre-wrap}
+  #dlg-next{text-align:right;font-size:11px;color:#ffffff66;margin-top:4px}
+  #dlg-choices{margin-top:8px;display:none}
+  .choice{padding:5px 10px;border-radius:6px;font-size:14px;cursor:pointer}
+  .choice.sel{background:#ffd98a26;border:1px solid #ffd98a88}
+  /* ---------- 面板 ---------- */
+  .panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;max-width:92vw;max-height:80vh;overflow:auto;
+    background:#14141fee;border:1px solid #ffffff33;border-radius:12px;padding:18px 22px;z-index:30;display:none}
+  .panel h3{margin:0 0 12px;color:#ffd98a;font-size:17px}
+  .panel .row{display:flex;justify-content:space-between;border-bottom:1px dashed #ffffff1c;padding:7px 2px;font-size:14px}
+  .panel .desc{color:#ffffff77;font-size:12px}
+  .panel .tip{margin-top:10px;color:#ffffff55;font-size:11px}
+  button{background:#2c2c44;color:#e8e6f0;border:1px solid #ffffff33;border-radius:8px;padding:8px 18px;font-size:14px;cursor:pointer}
+  button:hover{background:#3a3a5c}
+  button:disabled{opacity:.4;cursor:default}
+  button.primary{background:#7a5a2c;border-color:#ffd98a88}
+  button.primary:hover{background:#9a7038}
+  /* ---------- 全屏层 ---------- */
+  .screen{position:fixed;inset:0;background:radial-gradient(1200px 700px at 50% 40%,#1b1b2e,#0b0b12);z-index:50;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  #title h1{font-size:44px;margin:0;color:#f2ecda;letter-spacing:6px;text-shadow:0 0 30px #ffd98a44}
+  #title .sub{color:#7fd4ff;margin:6px 0 22px;font-size:14px;letter-spacing:2px}
+  #title .ctl{color:#ffffff88;font-size:12.5px;line-height:2;margin-bottom:26px}
+  #title .ctl b{color:#ffd98a;font-weight:normal}
+  #pause,#ending{display:none;background:#0b0b12dd}
+  #ending h1{color:#ffd98a;font-size:34px}
+  #ending p{color:#ccc;line-height:2}
+  #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .4s;z-index:40}
+  #err{position:fixed;left:0;right:0;bottom:0;background:#5a1020;color:#ffb0b0;font:12px monospace;
+    padding:6px 10px;z-index:99;display:none;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="1280" height="720"></canvas></div>
+
+<div class="hud" id="hud-tl">
+  <div class="bar"><div class="fill" id="hp-fill"></div><label>形状完整度</label></div>
+  <div class="bar"><div class="fill" id="gel-fill"></div><label>凝胶量</label></div>
+  <div id="form-chip">凝胶态 · 均衡</div>
+</div>
+<div class="hud" id="hud-tr"><span id="clock">🌞 白天</span><br><span id="tide-warn">≈ 潮汐上涨 ≈</span></div>
+<div id="tracker"><h4 id="trk-title"></h4><div id="trk-hint"></div></div>
+<div id="skillbar">
+  <div class="skill" id="sk-soft"><span class="k">左键</span> 软弹</div>
+  <div class="skill locked" id="sk-blade"><span class="k">近战</span> 守卫的剑术 🔒</div>
+  <div class="skill locked" id="sk-mech"><span class="k">钥匙</span> 机关术 🔒</div>
+</div>
+<div id="prompt"></div>
+<div id="toasts"></div>
+
+<div id="dialogue">
+  <div id="dlg-speaker"></div>
+  <div id="dlg-text"></div>
+  <div id="dlg-choices"></div>
+  <div id="dlg-next">E / 点击 继续</div>
+</div>
+
+<div class="panel" id="panel-inv"><h3>背包</h3><div id="inv-rows"></div><div class="tip">Tab / Esc 关闭</div></div>
+<div class="panel" id="panel-craft"><h3>制作</h3><div id="craft-rows"></div>
+  <div style="margin-top:14px"><button id="btn-craft" class="primary">制作固定剂 (E)</button></div>
+  <div class="tip">C / Esc 关闭 · 固定剂用于修复档案架</div></div>
+<div class="panel" id="panel-quest"><h3>任务日志</h3><div id="quest-rows"></div><div class="tip">J / Esc 关闭</div></div>
+
+<div class="screen" id="title">
+  <h1>盐 与 光</h1>
+  <div class="sub">SLIME KINGDOM · 记忆之形 — 可玩 DEMO | 第六组</div>
+  <div class="ctl">
+    <b>WASD</b> 移动 · <b>鼠标</b> 瞄准 · <b>Shift</b> 冲刺 · <b>Space</b> 跳跃/滑行<br>
+    <b>1/2/3</b> 凝胶态 / 液态 / 硬固态 · <b>左键</b> 软弹或近战 · <b>E</b> 互动<br>
+    <b>B</b> 建造(硬固态) · <b>C</b> 制作 · <b>Tab</b> 背包 · <b>J</b> 任务 · <b>F5/F9</b> 存/读 · <b>M</b> 静音
+  </div>
+  <div style="display:flex;gap:14px">
+    <button class="primary" id="btn-new">新的记忆</button>
+    <button id="btn-continue">继续</button>
+  </div>
+</div>
+<div class="screen" id="pause">
+  <h1 style="font-size:28px;color:#f2ecda">暂停</h1>
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px;width:220px">
+    <button class="primary" id="btn-resume">继续游戏</button>
+    <button id="btn-save">保存 (当前存档位)</button>
+    <button id="btn-load">读取</button>
+    <button id="btn-quit">回到标题</button>
+  </div>
+</div>
+<div class="screen" id="ending">
+  <h1>✦ 档案馆重新亮起 ✦</h1>
+  <p id="end-stats"></p>
+  <p style="color:#ffffff66;font-size:12px">《盐与光》主题曲完整版详见组内音频文件 · 第六组:Giulio / Peter(Pan Yuling)/ Devin</p>
+  <button class="primary" id="btn-again">回到标题</button>
+</div>
+<div id="fade"></div>
+<div id="err"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   盐与光 · 记忆之形 DEMO —— 单文件可玩原型
+   对应《开发规格书》任务 T0–T16 的核心循环(网页版实现)
+   ===================================================================== */
+window.onerror = function(msg, src, line){
+  const el = document.getElementById('err');
+  el.style.display='block'; el.textContent = 'ERR: '+msg+' @'+line;
+};
+
+/* ---------------- 0. 常量 ---------------- */
+const TS=32, MW=44, MH=34, VW=1280, VH=720;
+const DAY_LEN=90;                       // 一天90秒(演示压缩)
+const NIGHT_AT=.62, TIDE_RISE=.68, TIDE_FALL=.08;
+const SPEED={gel:160,liquid:105,solid:120}, DASH_SPEED=330, DASH_TIME=.2, DASH_COST=12, DASH_CD=.7, DASH_INVULN=.3;
+const FORM_COST=8, HOP_TIME=.5, HOP_H=26, SLIDE_TIME=.35;
+const SHOT_COST=6, SHOT_DMG=1, GEL_REGEN=4;
+const MAX_HP=100, MAX_GEL=100;
+const BUILD_COST=20;
+const PLAYER_R=10;
+
+const COLOR={gel:'#7fd4ff',liquid:'#4fa8e8',solid:'#c9c9d9'};
+const FORM_NAME={gel:'凝胶态 · 均衡',liquid:'液态 · 穿栅潜流',solid:'硬固态 · 建造/减伤'};
+
+/* ---------------- 1. 音频(WebAudio 合成,无外部文件) ---------------- */
+const AU={ctx:null,muted:false,bgm:null,
+  ensure(){ if(!this.ctx){ try{ this.ctx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+    if(this.ctx&&this.ctx.state==='suspended') this.ctx.resume(); },
+  beep(f=440,dur=.12,type='sine',vol=.15,slide=0){
+    if(!this.ctx||this.muted) return;
+    const t=this.ctx.currentTime, o=this.ctx.createOscillator(), g=this.ctx.createGain();
+    o.type=type; o.frequency.setValueAtTime(f,t);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,f+slide),t+dur);
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+dur);
+    o.connect(g).connect(this.ctx.destination); o.start(t); o.stop(t+dur+.02);
+  },
+  chord(fs,dur=1.2,vol=.06){ fs.forEach((f,i)=>setTimeout(()=>this.beep(f,dur,'triangle',vol),i*90)); },
+  sfx(name){
+    const m={
+      pickup:[660,.09,'triangle',.12], shoot:[300,.1,'square',.07,-140],
+      hurt:[140,.2,'sawtooth',.14,-60], form:[420,.16,'sine',.12,260],
+      absorb:[220,.5,'sine',.13,440], quest:[523,.4,'triangle',.1,262],
+      door:[110,.3,'square',.12,-40], build:[200,.15,'triangle',.12,120],
+      die:[200,.5,'sawtooth',.12,-150], heal:[520,.3,'sine',.1,180],
+      err:[160,.12,'square',.08,-40], skill:[700,.25,'triangle',.1,-200],
+    }[name];
+    if(m) this.beep(...m);
+  },
+  ambient(night){
+    // 真实 BGM:《盐与歌》(豆包 AI 生成,组内主题曲)
+    if(!this.file && !this.fileFailed){
+      try{
+        this.file=new Audio('bgm.m4a'); this.file.loop=true; this.file.volume=0;
+        this.file.addEventListener('error',()=>{this.fileFailed=true;});
+        const p=this.file.play();
+        if(p&&p.catch) p.catch(()=>{ /* 浏览器要求手势,稍后由点击再次触发 */ });
+      }catch(e){ this.fileFailed=true; }
+    }
+    if(this.file && !this.fileFailed){
+      this.file.muted=this.muted;
+      this.file.volume=this.muted?0:(night?0.32:0.45);
+      if(this.file.paused){ const p=this.file.play(); if(p&&p.catch)p.catch(()=>{}); }
+      return;
+    }
+    // 后备:合成氛围垫底(bgm.m4a 缺失时)
+    if(!this.ctx||this.muted) return;
+    if(this.bgm){ this.bgm.g.gain.linearRampToValueAtTime(0,this.ctx.currentTime+1.2);
+      const old=this.bgm; setTimeout(()=>{try{old.o1.stop();old.o2.stop();}catch(e){}},1400); }
+    const o1=this.ctx.createOscillator(),o2=this.ctx.createOscillator(),g=this.ctx.createGain();
+    o1.type='sine';o2.type='sine';
+    const base=night?82:110; o1.frequency.value=base; o2.frequency.value=base*1.503;
+    g.gain.value=0; g.gain.linearRampToValueAtTime(night?.035:.05,this.ctx.currentTime+1.5);
+    o1.connect(g);o2.connect(g);g.connect(this.ctx.destination);o1.start();o2.start();
+    this.bgm={o1,o2,g};
+  }
+};
+
+/* ---------------- 2. 输入 ---------------- */
+const keys={}, mouse={x:VW/2,y:VH/2,down:false};
+const PREVENT=['Space','Tab','KeyE','KeyB','KeyC','KeyJ','KeyM','F5','F9','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+window.addEventListener('keydown',e=>{
+  if(PREVENT.includes(e.code)) e.preventDefault();
+  keys[e.code]=true; Input.onKey(e.code);
+  AU.ensure();
+});
+window.addEventListener('keyup',e=>{keys[e.code]=false;});
+window.addEventListener('mousemove',e=>{
+  const r=cv.getBoundingClientRect();
+  mouse.x=(e.clientX-r.left)*VW/r.width; mouse.y=(e.clientY-r.top)*VH/r.height;
+});
+window.addEventListener('mousedown',e=>{ AU.ensure();
+  if(e.target===cv){ mouse.down=true; Input.onClick(); } else Input.onClick();
+});
+window.addEventListener('mouseup',()=>{mouse.down=false;});
+
+const Input={
+  _handlers:{},
+  on(evt,fn){ (this._handlers[evt]=this._handlers[evt]||[]).push(fn); },
+  emit(evt,...a){ (this._handlers[evt]||[]).forEach(f=>f(...a)); },
+  onKey(code){ this.emit('key',code); },
+  onClick(){ this.emit('click'); }
+};
+
+/* ---------------- 3. 数据(items / dialogues / quests / recipes / enemies) ---------------- */
+const ITEMS={
+  salt:{name:'记忆之盐',desc:'固定形状的盐粒。档案馆的角落里到处都是。'},
+  gel_orb:{name:'凝胶团',desc:'建造与制作的原料。'},
+  relic_page:{name:'档案残页',desc:'“大消溶”之夜的证物。'},
+  fixative:{name:'固定剂',desc:'使用:修复一处融化点。'}
+};
+const RECIPES=[{out:'fixative',name:'固定剂',ins:{salt:3,gel_orb:2},unlock:'met_will'}];
+const SKILLS={
+  guard_blade:{name:'守卫的剑术',desc:'左键在敌人近处变为三段连击(1/1/2 伤害)。'},
+  archivist_mechanism:{name:'档案员的机关术',desc:'被动钥匙:开启旧时代的机关锁。'}
+};
+const ENEMY_DEF={
+  dissolved_page:{name:'溶页',hp:8,speed:70,patrol:42,damage:8,vision:150,range:24,
+    drops:[{id:'gel_orb',min:1,max:2}]},
+  archivist_wraith:{name:'档案员之殇',hp:40,speed:95,patrol:50,damage:15,vision:190,range:30,elite:true,
+    drops:[{id:'relic_page',min:1,max:1}]}
+};
+
+/* 对话:node = {sp?peaker,text,next,choices:[{text,next,cmds}],cmds} */
+const DLG={
+  will_intro:{sp:'灯守 · 薇尔',nodes:{
+    start:{text:'又一个无色的孩子……潮汐不会等你,小家伙。',next:'choice'},
+    choice:{text:'孩子,需要什么?',choices:[
+      {text:'我需要盐。(接取委托)',next:'q1',cmds:[['set_flag','met_will',true],['start_quest','q_main_01'],['sfx','quest']]},
+      {text:'我还想再看看。',next:'bye'}]},
+    q1:{text:'大厅里散落着盐晶,带五撮回来——别让潮水先到。',next:null},
+    bye:{text:'潮水不等人。',next:null}}},
+
+  will_turnin1:{sp:'灯守 · 薇尔',nodes:{
+    start:{text:'五撮盐,很好。这些凝胶团你拿着——接下来,去西边的淹水书库,残页还在等。',next:'c'},
+    c:{text:'书库被格栅封着,寻常走法进不去。',choices:[
+      {text:'怎么进去?',next:'teach'},
+      {text:'我这就去。',next:null,
+       cmds:[['take_item','salt',5],['give_item','gel_orb',3],['complete_quest','q_main_01'],['start_quest','q_main_02'],['sfx','quest']]}]},
+    teach:{text:'液态,孩子。按 2,把自己变成一滩水,从格栅缝里流过去。',next:null}}},
+
+  will_hint1:{sp:'灯守 · 薇尔',nodes:{start:{text:'数数你的盐晶,孩子。大厅的角落里还有。',next:null}}},
+  will_hint2:{sp:'灯守 · 薇尔',nodes:{start:{text:'格栅只认液态。按 2,变成水,流过去。',next:null}}},
+  will_turnin2:{sp:'灯守 · 薇尔',nodes:{
+    start:{text:'档案残页……“大消溶”那晚的记录。拿着这支固定剂,听好:',next:'c'},
+    c:{text:'北库的档案员之殇,守着机关记忆。夺回来,打开内门,架起断桥,把档案架修好——让档案馆重新亮起来。',choices:[
+      {text:'明白了。',next:null,
+       cmds:[['take_item','relic_page',1],['give_item','fixative',1],['complete_quest','q_main_02'],['start_quest','q_main_03'],['sfx','quest']]}]}}},
+  will_hint3a:{sp:'灯守 · 薇尔',nodes:{start:{text:'之殇就在北库。先去大厅吸收守卫的记忆,学会剑术再进去。',next:null}}},
+  will_hint3b:{sp:'灯守 · 薇尔',nodes:{start:{text:'用机关记忆去开内门,然后硬固态按 B,在断桥上架三块桥板。',next:null}}},
+  will_hint3c:{sp:'灯守 · 薇尔',nodes:{start:{text:'把固定剂用在档案架上,孩子。就差最后一步了。',next:null}}},
+  will_done:{sp:'灯守 · 薇尔',nodes:{start:{text:'档案馆又亮了……谢谢你,无色的孩子。你有了自己的形状。',next:null}}},
+
+  popo_day:{sp:'溶化者 · 波普',nodes:{start:{text:'潮水每天晚上都会涨。我们这样的,最怕忘记自己的形状。',next:null}}},
+  popo_day2:{sp:'溶化者 · 波普',nodes:{start:{text:'薇尔的灯从来没灭过。盐灯就是我们的锚。',next:null}}},
+  popo_night:{sp:'溶化者 · 波普',nodes:{start:{text:'夜里别走低洼地……水会把形状带走。等天亮,或者去盐灯歇到早上。',next:null}}},
+
+  door_locked:{sp:'机关锁',nodes:{start:{text:'一台旧时代的机关锁,锈住了。锁孔形状像一页卷起的档案。',next:null}}},
+  door_opening:{sp:'机关锁',nodes:{start:{text:'机关记忆顺着锁孔流进去——咔哒。厚门缓缓退开。',next:null,
+    cmds:[['sfx','door']]}},},
+  shelf_need:{sp:'档案架',nodes:{start:{text:'档案架融化了一半。需要一支固定剂才能修好。',next:null}}},
+};
+
+/* 任务(步骤由 cmds / 事件推进) */
+const QUESTS={
+  q_main_01:{title:'盐灯的委托',steps:[
+    {t:'collect',item:'salt',n:5,hint:'在档案馆大厅收集盐晶 0/5'},
+    {t:'talk',hint:'把盐带回盐灯交给薇尔'}]},
+  q_main_02:{title:'潮前的书页',steps:[
+    {t:'collect',item:'relic_page',n:1,hint:'液态(按2)穿过格栅,取回档案残页 0/1'},
+    {t:'talk',hint:'把残页交给薇尔'}]},
+  q_main_03:{title:'点亮档案馆',steps:[
+    {t:'kill',enemy:'archivist_wraith',hint:'击败北库的档案员之殇'},
+    {t:'absorb',skill:'archivist_mechanism',hint:'吸收档案员的机关记忆'},
+    {t:'door',hint:'用机关记忆(E)打开内门'},
+    {t:'build',n:3,hint:'硬固态(按3)按 B 架桥 0/3'},
+    {t:'flag',flag:'repair_done',hint:'把固定剂用在档案架上(E)'}]},
+};
+
+/* ---------------- 4. 地图生成 ---------------- */
+// 字符: #墙 .地板 ,地板2 w浅水 g格栅 l低障 b断桥(未建) B桥板
+const grid=(()=>{ 
+  const g=Array.from({length:MH},()=>Array(MW).fill('#'));
+  const carve=(x,y,w,h,ch='.')=>{for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)g[j][i]=ch;};
+  carve(12,25,16,7);            // A 盐灯小屋(安全区)
+  carve(20,18,4,8);             // A→B 走廊
+  carve(9,9,27,10);             // B 档案大厅
+  carve(2,9,7,10);              // C 淹水书库
+  carve(8,13,1,2);              // C↔B 门洞
+  carve(2,11,3,6);              // C 子房(残页)
+  for(let j=11;j<=16;j++) g[j][5]='#';      // 子房西墙
+  g[13][5]='g'; g[14][5]='g';               // 格栅
+  for(let j=9;j<=18;j++)for(let i=2;i<=8;i++) if(g[j][i]==='.') g[j][i]='w';
+  g[10][2]='.'; g[10][3]='.'; g[10][4]='.'; // 北侧小平台
+  carve(2,10,3,1,'.');                      
+  carve(21,5,3,5);              // B→D 走廊
+  carve(12,1,14,7);             // D 北库(精英)
+  carve(27,1,15,8);             // E 修复平台
+  // 内门(D→E) col26, rows4-5
+  g[4][26]='D'; g[5][26]='D';               // 'D'=关门状态
+  // 断桥峡谷 x33-34 全高
+  for(let j=1;j<=8;j++){ g[j][33]='b'; g[j][34]='b'; }
+  // 装饰低障
+  [[13,10],[14,10],[30,16],[31,16],[24,11]].forEach(([x,y])=>g[y][x]='l');
+  return g;
+})();
+const BASE_GRID=grid.map(r=>r.slice());
+const TIDE_CELLS=[];                        // 夜间深水(仅C区下部)
+for(let i=5;i<=8;i++){TIDE_CELLS.push([i,17],[i,18]);}
+const TIDE_SET=new Set(TIDE_CELLS.map(([c,r])=>c+','+r));
+
+const ch=(c,r)=>(c<0||r<0||c>=MW||r>=MH)?'#':grid[r][c];
+const key=(c,r)=>c+','+r;
+
+/* ---------------- 5. 全局状态 ---------------- */
+let G=null, cam={x:0,y:0}, shake=0;
+const cv=document.getElementById('game'), ctx=cv.getContext('2d');
+
+function newGame(){
+  // 恢复地图
+  for(let r=0;r<MH;r++)for(let c=0;c<MW;c++)grid[r][c]=BASE_GRID[r][c];
+  G={
+    state:'play', time:DAY_LEN*.15, playSecs:0,
+    player:{x:20.5*TS,y:29.5*TS,form:'gel',hp:MAX_HP,gel:MAX_GEL,z:0,hopT:-1,slideT:-1,
+      dashT:0,dashCD:0,inv:0,face:[0,1],atkCD:0,combo:0,comboT:0,channel:null},
+    inv:{salt:0,gel_orb:0,relic_page:0,fixative:0},
+    quests:{}, flags:{}, skills:{guard_blade:false,archivist_mechanism:false},
+    enemies:[], pickups:[], projectiles:[], fx:[],
+    doors:{inner:false}, built:[],
+    echoes:{guard_blade:{c:17,r:12,taken:false}, },
+    dead:{}, takenPickups:{},
+    questsDoneToast:false, ended:false,
+  };
+  for(const id in QUESTS) G.quests[id]={started:false,step:0,done:false};
+  // 敌人
+  const mk=(type,c,r,id)=>({id,type,...ENEMY_DEF[type],x:(c+.5)*TS,y:(r+.5)*TS,hp:ENEMY_DEF[type].hp,
+    home:[(c+.5)*TS,(r+.5)*TS],dir:[1,0],st:'patrol',t:Math.random()*2,atkCD:0,hurtT:0,tele:0});
+  G.enemies=[mk('dissolved_page',12,12,'e1'),mk('dissolved_page',28,11,'e2'),mk('dissolved_page',22,16,'e3'),
+             mk('dissolved_page',15,3,'e4'),mk('dissolved_page',23,6,'e5'),mk('archivist_wraith',19,4,'elite')];
+  // 拾取物
+  const pk=(item,c,r,id)=>({id,item,x:(c+.5)*TS,y:(r+.5)*TS});
+  G.pickups=[pk('salt',11,17,'p1'),pk('salt',33,16,'p2'),pk('salt',26,10,'p3'),pk('salt',22,27,'p4'),pk('salt',9,10,'p5'),
+             pk('gel_orb',2,15,'p6'),pk('gel_orb',4,11,'p7'),pk('gel_orb',29,13,'p8'),pk('gel_orb',24,30,'p9'),
+             pk('relic_page',3,13,'p10')];
+  cam.x=G.player.x-VW/2; cam.y=G.player.y-VH/2;
+  // 重置技能栏 UI
+  document.getElementById('sk-blade').className='skill locked';
+  document.getElementById('sk-blade').innerHTML='<span class="k">近战</span> 守卫的剑术 🔒';
+  document.getElementById('sk-mech').className='skill locked';
+  document.getElementById('sk-mech').innerHTML='<span class="k">钥匙</span> 机关术 🔒';
+  document.getElementById('form-chip').textContent=FORM_NAME.gel;
+  document.getElementById('form-chip').style.color=COLOR.gel;
+  refreshTracker();
+  toast('WASD 移动 · 鼠标瞄准 · 左键软弹','good');
+  setTimeout(()=>G&&!G.ended&&toast('去找盐灯旁的 薇尔(E 对话)'),4000);
+}
+
+/* ---------------- 6. 工具 ---------------- */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const cellOf=(x,y)=>[Math.floor(x/TS),Math.floor(y/TS)];
+const isTide=()=>{const p=G.time/DAY_LEN%1;return p>=TIDE_RISE||p<TIDE_FALL;};
+const isNight=()=>{const p=G.time/DAY_LEN%1;return p>=NIGHT_AT||p<NIGHT_AT*0;};
+function solidTile(chv,opt){ // opt:{form,hopZ,forEnemy}
+  if(chv==='#') return true;
+  if(opt.forEnemy) return 'glwbD'.includes(chv)&&chv!=='B';
+  if(chv==='g') return opt.form!=='liquid';
+  if(chv==='l') return !(opt.hopZ>4||(opt.form==='liquid'&&opt.sliding));
+  if(chv==='b') return true;
+  if(chv==='D') return !G.doors.inner;
+  if(chv==='w'&&TIDE_SET.has(opt.k)&&isTide()) return opt.form!=='liquid';
+  return false;
+}
+function blocked(x,y,opt){
+  const [c,r]=cellOf(x,y);
+  opt.k=key(c,r);
+  if(solidTile(ch(c,r),opt)) return true;
+  // 四角采样
+  for(const[dx,dy]of[[-1,-1],[1,-1],[-1,1],[1,1]]){
+    const px=x+dx*(PLAYER_R-2), py=y+dy*(PLAYER_R-2);
+    const[pc,pr]=cellOf(px,py); const k2=key(pc,pr);
+    if(solidTile(ch(pc,pr),{...opt,k:k2})) return true;
+  }
+  return false;
+}
+function tileUnder(o){const[c,r]=cellOf(o.x,o.y);return ch(c,r);}
+
+/* ---------------- 7. 背包 / 提示 ---------------- */
+function addItem(id,n=1){ G.inv[id]=(G.inv[id]||0)+n; toast('获得 '+ITEMS[id].name+' ×'+n,'good'); AU.sfx('pickup'); onItemChange(); }
+function takeItem(id,n=1){ G.inv[id]=Math.max(0,(G.inv[id]||0)-n); onItemChange(); }
+function onItemChange(){
+  // collect 步骤自动推进
+  for(const qid in QUESTS){ const q=G.quests[qid]; if(!q.started||q.done) continue;
+    const st=QUESTS[qid].steps[q.step];
+    if(st&&st.t==='collect'&&st.item&&(G.inv[st.item]||0)>=st.n){ advanceQuest(qid); }
+  }
+  refreshTracker();
+}
+function toast(txt,cls){
+  const box=document.getElementById('toasts');
+  const d=document.createElement('div'); d.className='toast'+(cls?' '+cls:''); d.textContent=txt;
+  box.appendChild(d); setTimeout(()=>{d.style.opacity=0;d.style.transition='opacity .5s';},2600);
+  setTimeout(()=>d.remove(),3200);
+  while(box.children.length>4) box.firstChild.remove();
+}
+
+/* ---------------- 8. 任务系统 ---------------- */
+function startQuest(id){ const q=G.quests[id]; if(q.started||q.done) return;
+  q.started=true; q.step=0; toast('任务开始:'+QUESTS[id].title,'good'); refreshTracker(); }
+function advanceQuest(id){ const q=G.quests[id]; if(!q.started||q.done) return;
+  q.step++; AU.sfx('skill'); toast(QUESTS[id].title+' · 目标更新'); refreshTracker(); }
+function completeQuest(id){ const q=G.quests[id]; if(q.done) return;
+  q.done=true; AU.sfx('quest'); AU.chord([523,659,784],.8,.08);
+  toast('任务完成:'+QUESTS[id].title,'good'); refreshTracker();
+  if(id==='q_main_03') setTimeout(regionLit,1200);
+}
+function activeQuest(){ for(const id of ['q_main_03','q_main_02','q_main_01'])
+  { const q=G.quests[id]; if(q.started&&!q.done) return id; } return null; }
+function refreshTracker(){
+  const id=activeQuest(), t=document.getElementById('trk-title'), h=document.getElementById('trk-hint');
+  if(!id){t.textContent='暂无进行中任务';h.textContent='';return;}
+  const q=G.quests[id], def=QUESTS[id], st=def.steps[q.step];
+  t.textContent='◈ '+def.title;
+  let hint=st?st.hint:'完成!';
+  const m=hint.match(/(\d)\/(\d)$/);
+  if(st&&st.t==='collect'){ hint=hint.replace(/\d\/\d$/,Math.min(G.inv[st.item]||0,st.n)+'/'+st.n); }
+  if(st&&st.t==='build'){ hint=hint.replace(/\d\/\d$/,Math.min(G.built.length,st.n)+'/'+st.n); }
+  h.textContent=hint;
+}
+function regionLit(){
+  if(G.ended) return; G.ended=true; G.flags.region_lit=true;
+  document.getElementById('end-stats').innerHTML=
+    '用时 '+Math.floor(G.playSecs/60)+' 分 '+Math.floor(G.playSecs%60)+' 秒 · 学会记忆 '+
+    Object.keys(G.skills).filter(k=>G.skills[k]).length+'/2 · 档案馆停止融化';
+  setTimeout(()=>{document.getElementById('ending').style.display='flex';},900);
+}
+
+/* ---------------- 9. 对话系统 ---------------- */
+const dlgUI=document.getElementById('dialogue');
+const Dlg={cur:null,node:null,shown:'',ti:0,choice:-1,
+  open(id){ const d=DLG[id]; if(!d) return;
+    this.cur=id; this.node=d.nodes[d.entry||'start']; G.state='dialog';
+    dlgUI.style.display='block'; document.getElementById('dlg-speaker').textContent=d.sp;
+    this.choice=-1; this.renderNode();
+  },
+  renderNode(){
+    const n=this.node; this.shown=''; this.ti=0;
+    document.getElementById('dlg-text').textContent='';
+    const chBox=document.getElementById('dlg-choices');
+    if(n.choices){ document.getElementById('dlg-next').style.display='none';
+      chBox.style.display='block'; this.choice=0;
+      chBox.innerHTML=n.choices.map((c,i)=>`<div class="choice${i===0?' sel':''}" data-i="${i}">${c.text}</div>`).join('');
+      chBox.querySelectorAll('.choice').forEach(el=>{
+        el.onclick=()=>{this.choice=+el.dataset.i;this.pick();};
+        el.onmouseenter=()=>{this.choice=+el.dataset.i;this.hl();};
+      });
+    } else { document.getElementById('dlg-next').style.display='block';
+      chBox.style.display='none'; chBox.innerHTML=''; }
+    (n.cmds||[]).forEach(runCmd);
+  },
+  hl(){ document.querySelectorAll('#dlg-choices .choice').forEach((el,i)=>
+      el.classList.toggle('sel',i===this.choice)); },
+  advance(){
+    const n=this.node;
+    if(this.ti<n.text.length){ this.ti=n.text.length; document.getElementById('dlg-text').textContent=n.text; return; }
+    if(n.choices){ this.pick(); return; }
+    this.finishNode(n.next);
+  },
+  pick(){ const n=this.node; if(!n.choices) return;
+    const c=n.choices[this.choice];
+    (c.cmds||[]).forEach(runCmd);
+    this.node=c.next? DLG[this.cur].nodes[c.next]:null;
+    if(!this.node) return this.close();
+    this.renderNode();
+  },
+  finishNode(nextId){
+    const d=DLG[this.cur], n=this.node;
+    if(n._end_cmds){ n._end_cmds.forEach(runCmd); }
+    else if(n.cmds&&nextId!==undefined){} // cmds 已在进入时执行
+    if(nextId&&d.nodes[nextId]){ this.node=d.nodes[nextId]; (this.node.cmds||[]).forEach(runCmd); this.renderNode(); }
+    else this.close();
+  },
+  close(){ dlgUI.style.display='none'; G.state='play';
+    const id=this.cur; this.cur=null;
+    EventBus.emit('dialogue_finished',id);
+  },
+  update(dt){ const n=this.node; if(!n) return;
+    if(this.ti<n.text.length){ this.ti=Math.min(n.text.length,this.ti+dt*45);
+      document.getElementById('dlg-text').textContent=n.text.slice(0,Math.floor(this.ti)); }
+  },
+  moveChoice(d){ const n=this.node; if(!n||!n.choices) return;
+    this.choice=(this.choice+d+n.choices.length)%n.choices.length; this.hl(); }
+};
+/* 对话命令全集 */
+function runCmd(c){
+  const [op,...a]=c;
+  switch(op){
+    case 'set_flag': G.flags[a[0]]=a[1]; break;
+    case 'give_item': addItem(a[0],a[1]); break;
+    case 'take_item': takeItem(a[0],a[1]); break;
+    case 'start_quest': startQuest(a[0]); break;
+    case 'complete_quest': completeQuest(a[0]); break;
+    case 'advance_quest': advanceQuest(a[0]); break;
+    case 'sfx': AU.sfx(a[0]); break;
+    case 'learn_skill': learnSkill(a[0]); break;
+    case 'heal': G.player.hp=MAX_HP; G.player.gel=MAX_GEL; break;
+    case 'tendency': break;
+  }
+}
+/* NPC 对话路由 */
+function willDialogue(){
+  const q1=G.quests.q_main_01,q2=G.quests.q_main_02,q3=G.quests.q_main_03;
+  if(!G.flags.met_will) return 'will_intro';
+  if(q1.started&&!q1.done) return (G.inv.salt>=5)?'will_turnin1':'will_hint1';
+  if(q2.started&&!q2.done) return (G.inv.relic_page>=1)?'will_turnin2':'will_hint2';
+  if(q3.started&&!q3.done){ const st=QUESTS.q_main_03.steps[q3.step];
+    if(st.t==='kill'||st.t==='absorb') return 'will_hint3a';
+    if(st.t==='door'||st.t==='build') return 'will_hint3b';
+    return 'will_hint3c'; }
+  return 'will_done';
+}
+
+/* ---------------- 10. 技能 ---------------- */
+function learnSkill(id){ if(G.skills[id]) return; G.skills[id]=true;
+  AU.sfx('absorb'); AU.chord([392,523,659,784],.9,.07);
+  toast('✦ 吸收记忆 · '+SKILLS[id].name,'good');
+  document.getElementById(id==='guard_blade'?'sk-blade':'sk-mech').classList.remove('locked');
+  document.getElementById(id==='guard_blade'?'sk-blade':'sk-mech').innerHTML=
+    id==='guard_blade'?'<span class="k">近战</span> 守卫的剑术':'<span class="k">钥匙</span> 机关术';
+  // absorb 步骤推进
+  for(const qid in QUESTS){ const q=G.quests[qid]; if(!q.started||q.done)continue;
+    const st=QUESTS[qid].steps[q.step];
+    if(st&&st.t==='absorb'&&st.skill===id) advanceQuest(qid);
+  }
+}
+
+/* ---------------- 11. 交互物 ---------------- */
+function getInteractables(){
+  const list=[], P=G.player;
+  const add=(x,y,label,fn,opt)=>list.push({x,y,label,fn,...opt});
+  // NPC
+  add(18.5*TS,29.5*TS,'对话 薇尔',()=>Dlg.open(willDialogue()),{});
+  add(25.5*TS,30.5*TS,'对话 波普',()=>{
+    Dlg.open(isNight()?'popo_night':(Math.random()<.5?'popo_day':'popo_day2'));},{});
+  // 盐灯
+  add(19.5*TS,29.5*TS,'盐灯 · 休息到天亮(自动存档)',()=>restAtLamp(),{});
+  // 拾取物
+  for(const p of G.pickups){ if(G.takenPickups[p.id]) continue;
+    add(p.x,p.y,'拾取 '+ITEMS[p.item].name,()=>{
+      G.takenPickups[p.id]=true; addItem(p.item,1);
+      if(p.item==='relic_page') toast('这就是薇尔说的残页!','good');
+    },{});}
+  // 记忆残响
+  if(!G.skills.guard_blade&&!G.echoes.guard_blade.taken)
+    add(17.5*TS,12.5*TS,'吸收 守卫的记忆',()=>startChannel(0.9,()=>learnSkill('guard_blade')),{});
+  if(G.dead.elite&&!G.skills.archivist_mechanism)
+    add(G.eliteDrop.x,G.eliteDrop.y,'吸收 档案员的机关记忆',()=>startChannel(1.2,()=>learnSkill('archivist_mechanism')),{});
+  // 内门
+  if(!G.doors.inner) add(26.5*TS,5*TS,G.skills.archivist_mechanism?'开启机关门':'查看机关锁',()=>{
+    if(G.skills.archivist_mechanism){ openInnerDoor(); }
+    else Dlg.open('door_locked');
+  },{});
+  // 档案架(修复点)
+  add(38.5*TS,4.5*TS,G.flags.repair_done?'档案架(已修复)':'修复档案架',()=>{
+    if(G.flags.repair_done){ toast('档案架已经恢复如初。'); return; }
+    if((G.inv.fixative||0)>=1){ takeItem('fixative',1); G.flags.repair_done=true;
+      AU.sfx('heal'); toast('档案架修复完成!','good'); onFlag('repair_done'); }
+    else { Dlg.open('shelf_need'); }
+  },{});
+  // 距离过滤
+  return list.filter(o=>Math.hypot(o.x-P.x,o.y-P.y)<46);
+}
+function openInnerDoor(){
+  G.doors.inner=true; grid[4][26]='.'; grid[5][26]='.';
+  Dlg.open('door_opening'); AU.sfx('door'); shake=6;
+  for(const qid in QUESTS){ const q=G.quests[qid]; if(!q.started||q.done)continue;
+    const st=QUESTS[qid].steps[q.step];
+    if(st&&st.t==='door') advanceQuest(qid);
+  }
+}
+function onFlag(f){ for(const qid in QUESTS){ const q=G.quests[qid]; if(!q.started||q.done)continue;
+    const st=QUESTS[qid].steps[q.step];
+    if(st&&st.t==='flag'&&st.flag===f){ advanceQuest(qid); completeQuest(qid); }
+  }
+}
+function startChannel(dur,done){
+  if(G.player.channel) return;
+  G.player.channel={t:0,dur,done}; AU.sfx('absorb');
+}
+function restAtLamp(){
+  G.player.hp=MAX_HP; G.player.gel=MAX_GEL;
+  const p=G.time/DAY_LEN%1;
+  G.time+=(DAY_LEN-p)+DAY_LEN*.06;
+  AU.sfx('heal'); toast('你在盐灯旁休息到天亮(已自动存档)','good');
+  saveGame('auto');
+}
+
+/* ---------------- 12. 建造模式 ---------------- */
+const Build={on:false,
+  toggle(){ if(G.player.form!=='solid'){toast('建造需要硬固态(按 3)');AU.sfx('err');return;}
+    this.on=!this.on; toast(this.on?'建造模式:点击蓝色断桥放置桥板(20 凝胶/块)':'建造模式关闭'); },
+  gapCells(){ const out=[]; for(let r=0;r<MH;r++)for(let c=0;c<MW;c++) if(grid[r][c]==='b') out.push([c,r]); return out; },
+  tryPlace(wx,wy){
+    const [c,r]=cellOf(wx,wy);
+    if(ch(c,r)!=='b'){ return; }
+    if(Math.hypot(wx-G.player.x,wy-G.player.y)>5*TS){ toast('离断桥太远了'); return; }
+    if(G.built.includes(key(c,r))) return;
+    if(G.player.gel<BUILD_COST){ toast('凝胶不足!'); AU.sfx('err'); return; }
+    G.player.gel-=BUILD_COST; G.built.push(key(c,r)); grid[r][c]='B';
+    AU.sfx('build'); toast('桥板 +1 ('+G.built.length+'/3)','good');
+    for(const qid in QUESTS){ const q=G.quests[qid]; if(!q.started||q.done)continue;
+      const st=QUESTS[qid].steps[q.step];
+      if(st&&st.t==='build'&&G.built.filter(k=>{const[bc,br]=k.split(',');return br>=1&&br<=8&&+bc>=33;}).length>=st.n)
+        advanceQuest(qid);
+    }
+    refreshTracker();
+  }
+};
+
+/* ---------------- 13. EventBus(精简版) ---------------- */
+const EventBus={_h:{},emit(e,...a){(this._h[e]||[]).forEach(f=>f(...a));},on(e,f){(this._h[e]=this._h[e]||[]).push(f);}};
+
+/* ---------------- 14. 玩家更新 ---------------- */
+function updatePlayer(dt){
+  const P=G.player;
+  if(P.channel){ P.channel.t+=dt;
+    if(P.channel.t>=P.channel.dur){ const d=P.channel.done; P.channel=null; d(); }
+    return; }
+  P.dashCD=Math.max(0,P.dashCD-dt); P.atkCD=Math.max(0,P.atkCD-dt); P.inv=Math.max(0,P.inv-dt);
+  P.comboT=Math.max(0,P.comboT-dt); if(P.comboT<=0) P.combo=0;
+  let mx=(keys['KeyD']||keys['ArrowRight']?1:0)-(keys['KeyA']||keys['ArrowLeft']?1:0);
+  let my=(keys['KeyS']||keys['ArrowDown']?1:0)-(keys['KeyW']||keys['ArrowUp']?1:0);
+  const mag=Math.hypot(mx,my); if(mag>0){mx/=mag;my/=mag;P.face=[mx,my];}
+  let sp=SPEED[P.form];
+  const ut=tileUnder(P);
+  if(ut==='w') sp*= P.form==='liquid'?1.3:.5;
+  // 冲刺
+  if(P.dashT>0){ P.dashT-=dt; sp=DASH_SPEED; mx=P.face[0]; my=P.face[1]; }
+  // 液态滑行
+  if(P.slideT>0){ P.slideT-=dt; sp=250; mx=P.face[0]; my=P.face[1]; }
+  // hop
+  if(P.hopT>=0){ P.hopT+=dt; const t=P.hopT/HOP_TIME;
+    if(t>=1){P.hopT=-1;P.z=0;} else P.z=Math.sin(t*Math.PI)*HOP_H; }
+  // 移动(分轴)
+  const opt={form:P.form,hopZ:P.z,sliding:P.slideT>0,k:''};
+  let nx=P.x+mx*sp*dt;
+  if(mag>0||P.dashT>0||P.slideT>0){ if(!blocked(nx,P.y,opt)) P.x=nx; }
+  let ny=P.y+my*sp*dt;
+  if(mag>0||P.dashT>0||P.slideT>0){ if(!blocked(P.x,ny,opt)) P.y=ny; }
+  // 凝胶
+  let dG=GEL_REGEN*dt;
+  if(ut==='w'&&P.form!=='liquid') dG=-3*dt;
+  if(ut==='w'&&P.form==='liquid') dG+=2*dt;
+  P.gel=clamp(P.gel+dG,0,MAX_GEL);
+  EventBus.emit('player_gel_changed',P.gel,MAX_GEL);
+}
+function tryDash(){ const P=G.player;
+  if(P.dashCD>0||P.gel<DASH_COST||P.form==='liquid') return;
+  P.gel-=DASH_COST; P.dashT=DASH_TIME; P.dashCD=DASH_CD; P.inv=Math.max(P.inv,DASH_INVULN);
+  AU.sfx('form');
+}
+function tryHop(){ const P=G.player;
+  if(P.form==='gel'&&P.hopT<0){ P.hopT=0; AU.beep(300,.2,'sine',.08,180); }
+  else if(P.form==='liquid'&&P.slideT<0){ P.slideT=SLIDE_TIME; AU.beep(260,.25,'sine',.08,-80); }
+}
+function tryForm(f){ const P=G.player;
+  if(P.form===f) return;
+  if(P.gel<FORM_COST){ toast('凝胶不足,无法变形'); AU.sfx('err'); return; }
+  P.gel-=FORM_COST; P.form=f; P.hopT=-1; P.z=0;
+  AU.sfx('form');
+  const chip=document.getElementById('form-chip');
+  chip.textContent=FORM_NAME[f]; chip.style.color=COLOR[f];
+  if(Build.on&&f!=='solid'){Build.on=false;}
+  toast('形态:'+FORM_NAME[f]);
+}
+function tryAttack(){
+  const P=G.player;
+  if(P.atkCD>0) return;
+  // 近战:已学剑术且近处有敌
+  if(G.skills.guard_blade){
+    const near=G.enemies.filter(e=>!e.dead&&Math.hypot(e.x-P.x,e.y-P.y)<48);
+    if(near.length){ P.combo=(P.combo%3)+1; P.comboT=.9; P.atkCD=.28;
+      const dmg=P.combo===3?2:1;
+      AU.beep(200+P.combo*80,.1,'square',.1,60); shake=Math.max(shake,2);
+      G.fx.push({t:.18,type:'slash',x:P.x,y:P.y,dir:Math.atan2(mouse.wy-P.y,mouse.wx-P.x),combo:P.combo});
+      near.forEach(e=>hurtEnemy(e,dmg,120));
+      return; }
+  }
+  // 软弹
+  if(P.gel<SHOT_COST){ toast('凝胶不足!'); AU.sfx('err'); return; }
+  P.gel-=SHOT_COST; P.atkCD=.3;
+  const a=Math.atan2(mouse.wy-P.y,mouse.wx-P.x);
+  G.projectiles.push({x:P.x+Math.cos(a)*14,y:P.y+Math.sin(a)*14,vx:Math.cos(a)*260,vy:Math.sin(a)*260,t:0});
+  AU.sfx('shoot');
+}
+function hurtEnemy(e,dmg,kb){
+  if(e.dead) return;
+  e.hp-=dmg; e.hurtT=.15;
+  const a=Math.atan2(e.y-G.player.y,e.x-G.player.x);
+  e.x+=Math.cos(a)*(kb/60); e.y+=Math.sin(a)*(kb/60);
+  if(e.hp<=0) killEnemy(e);
+}
+function killEnemy(e){
+  e.dead=true; G.dead[e.id]=true; AU.sfx('die'); shake=Math.max(shake,4);
+  const def=ENEMY_DEF[e.type];
+  (def.drops||[]).forEach(d=>{
+    const n=d.min+Math.floor(Math.random()*(d.max-d.min+1));
+    for(let i=0;i<n;i++) G.pickups.push({id:'drop_'+e.id+'_'+i,item:d.id,x:e.x+(Math.random()-.5)*24,y:e.y+(Math.random()-.5)*24});
+  });
+  if(e.type==='archivist_wraith'){ G.eliteDrop={x:e.x,y:e.y};
+    toast('之殇散开了……留下了一团闪烁的记忆','good'); }
+  // kill 步骤
+  for(const qid in QUESTS){ const q=G.quests[qid]; if(!q.started||q.done)continue;
+    const st=QUESTS[qid].steps[q.step];
+    if(st&&st.t==='kill'&&e.type===st.enemy) advanceQuest(qid);
+  }
+}
+
+/* ---------------- 15. 敌人更新 ---------------- */
+function updateEnemies(dt){
+  const P=G.player;
+  for(const e of G.enemies){ if(e.dead) continue;
+    e.t-=dt; e.atkCD=Math.max(0,e.atkCD-dt); e.hurtT=Math.max(0,e.hurtT-dt);
+    const d=Math.hypot(P.x-e.x,P.y-e.y);
+    // 状态
+    if(e.st!=='tele'&&d<e.vision&&P.inv<=0) e.st='chase'; else if(e.st==='chase'&&d>e.vision*1.4) e.st='patrol';
+    let vx=0,vy=0;
+    if(e.st==='patrol'){
+      if(e.t<=0){ e.t=1.2+Math.random()*1.8;
+        const a=Math.random()*Math.PI*2; e.dir=[Math.cos(a),Math.sin(a)];
+        if(Math.hypot(e.x-e.home[0],e.y-e.home[1])>100) e.dir=[(e.home[0]-e.x),(e.home[1]-e.y)];
+      }
+      vx=e.dir[0]*e.patrol*dt; vy=e.dir[1]*e.patrol*dt;
+    } else if(e.st==='chase'){
+      const a=Math.atan2(P.y-e.y,P.x-e.x);
+      if(e.type==='archivist_wraith'&&d<e.range*3.2&&e.atkCD<=0&&e.tele<=0){ e.tele=.5; }
+      if(e.tele>0){ e.tele-=dt; if(e.tele<=0){ e.atkCD=1.6; e.lunge=.35; AU.sfx('hurt'); } }
+      if(e.lunge>0){ e.lunge-=dt; vx=Math.cos(a)*260*dt; vy=Math.sin(a)*260*dt; }
+      else { vx=Math.cos(a)*e.speed*dt; vy=Math.sin(a)*e.speed*dt; }
+      if(d<e.range&&e.atkCD<=0&&!(e.type==='archivist_wraith')){ e.atkCD=1; damagePlayer(e.damage); }
+      if(e.type==='archivist_wraith'&&d<e.range+6&&e.lunge>0){ e.atkCD=1.4; damagePlayer(e.damage); e.lunge=0; }
+    }
+    const opt={forEnemy:true,k:''};
+    let nx=e.x+vx; if(!blocked(nx,e.y,opt)) e.x=nx; else e.dir=[-e.dir[0],e.dir[1]];
+    let ny=e.y+vy; if(!blocked(e.x,ny,opt)) e.y=ny; else e.dir=[e.dir[0],-e.dir[1]];
+    // 接触伤害
+    if(d<18&&e.atkCD<=0&&e.type!=='archivist_wraith'){ e.atkCD=1; damagePlayer(e.damage); }
+  }
+}
+function damagePlayer(n){
+  const P=G.player;
+  if(P.inv>0||P.channel) return;
+  if(P.form==='solid') n=Math.ceil(n*.6);
+  P.hp=Math.max(0,P.hp-n); P.inv=.6; AU.sfx('hurt'); shake=Math.max(shake,5);
+  EventBus.emit('player_hp_changed',P.hp,MAX_HP);
+  if(P.hp<=0){ P.channel=null; AU.sfx('die');
+    fade(true);
+    setTimeout(()=>{ P.x=19.5*TS;P.y=29.5*TS;P.hp=MAX_HP;P.gel=MAX_GEL;P.inv=1;
+      EventBus.emit('player_hp_changed',P.hp,MAX_HP);
+      toast('盐灯的光把你拉了回来……'); fade(false);
+    },600);
+  }
+}
+function fade(on){ document.getElementById('fade').style.opacity=on?1:0; }
+
+/* ---------------- 16. 投射物 ---------------- */
+function updateProjectiles(dt){
+  for(const p of G.projectiles){ p.t+=dt;
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    const[c,r]=cellOf(p.x,p.y);
+    if(ch(c,r)==='#'||p.t>1){ p.dead=true; continue; }
+    for(const e of G.enemies){ if(e.dead)continue;
+      if(Math.hypot(e.x-p.x,e.y-p.y)<16){ hurtEnemy(e,SHOT_DMG,60); p.dead=true; break; } }
+  }
+  G.projectiles=G.projectiles.filter(p=>!p.dead);
+}
+
+/* ---------------- 17. 存档 ---------------- */
+function saveGame(slot){
+  if(!G) return;
+  const data={v:1,
+    player:{x:G.player.x,y:G.player.y,form:G.player.form,hp:G.player.hp,gel:G.player.gel},
+    inv:G.inv, flags:G.flags, skills:G.skills, time:G.time, playSecs:G.playSecs,
+    quests:G.quests, doors:G.doors, built:G.built, echoes:G.echoes, dead:G.dead, taken:G.takenPickups};
+  try{ localStorage.setItem(slot==='auto'?'som_auto':'som_slot1',JSON.stringify(data));
+    if(slot!=='auto') toast('已保存','good'); }catch(e){ toast('保存失败:'+e.message); }
+}
+function loadGame(slot){
+  let raw=null;
+  try{ raw=localStorage.getItem(slot==='auto'?'som_auto':'som_slot1'); }catch(e){}
+  if(!raw){ toast('没有找到存档'); return false; }
+  newGame();
+  const d=JSON.parse(raw);
+  Object.assign(G.player,d.player); G.inv=d.inv; G.flags=d.flags||{}; G.skills=d.skills||G.skills;
+  G.time=d.time; G.playSecs=d.playSecs||0; G.quests=d.quests; G.doors=d.doors; G.built=d.built||[];
+  G.echoes=d.echoes||G.echoes; G.dead=d.dead||{}; G.takenPickups=d.taken||{};
+  // 重建世界
+  if(G.doors.inner){ grid[4][26]='.'; grid[5][26]='.'; }
+  G.built.forEach(k=>{const[c,r]=k.split(',').map(Number); grid[r][c]='B';});
+  G.enemies.forEach(e=>{ if(G.dead[e.id]) e.dead=true; });
+  if(G.dead.elite) G.eliteDrop=G.eliteDrop||{x:G.player.x,y:G.player.y};
+  G.state='play'; G.ended=!!G.flags.region_lit;
+  for(const id in G.skills) if(G.skills[id]) learnSkillQuiet(id);
+  refreshTracker(); updateFormChip();
+  toast('已读取存档','good');
+  return true;
+}
+function learnSkillQuiet(id){ G.skills[id]=true;
+  const el=document.getElementById(id==='guard_blade'?'sk-blade':'sk-mech');
+  el.classList.remove('locked');
+  el.innerHTML=id==='guard_blade'?'<span class="k">近战</span> 守卫的剑术':'<span class="k">钥匙</span> 机关术';
+}
+
+/* ---------------- 18. 输入 → 行为 ---------------- */
+Input.on('key',code=>{
+  if(!G) return;
+  if(G.state==='title'||G.state==='ending') return;
+  if(G.state==='dialog'){
+    if(code==='KeyE'||code==='Space'||code==='Enter') Dlg.advance();
+    if(code==='ArrowUp'||code==='KeyW') Dlg.moveChoice(-1);
+    if(code==='ArrowDown'||code==='KeyS') Dlg.moveChoice(1);
+    return;
+  }
+  if(G.state==='panel'){
+    if(code==='Tab'){hidePanels();}
+    else if(code==='Escape'){hidePanels();}
+    else if(code==='KeyC'&&panelOpen==='craft'){craftAction();}
+    else if(code==='KeyE'&&panelOpen==='craft'){craftAction();}
+    return;
+  }
+  if(G.state==='pause'){ if(code==='Escape') togglePause(false); return; }
+  // play
+  switch(code){
+    case 'Digit1': tryForm('gel'); break;
+    case 'Digit2': tryForm('liquid'); break;
+    case 'Digit3': tryForm('solid'); break;
+    case 'Space': tryHop(); break;
+    case 'ShiftLeft': case 'ShiftRight': tryDash(); break;
+    case 'KeyE': doInteract(); break;
+    case 'KeyB': Build.toggle(); break;
+    case 'KeyC': showPanel('craft'); break;
+    case 'Tab': showPanel('inv'); break;
+    case 'KeyJ': showPanel('quest'); break;
+    case 'KeyM': AU.muted=!AU.muted; toast(AU.muted?'已静音':'声音开启'); AU.ambient(isNight()); break;
+    case 'F5': saveGame('slot'); break;
+    case 'F9': loadGame('slot'); break;
+    case 'Escape': togglePause(true); break;
+  }
+});
+Input.on('click',()=>{
+  if(!G) return;
+  if(G.state==='dialog'){ Dlg.advance(); return; }
+  if(G.state==='panel'){ return; }
+  if(G.state!=='play') return;
+  if(Build.on){ Build.tryPlace(mouse.wx,mouse.wy); return; }
+  tryAttack();
+});
+
+function doInteract(){
+  const list=getInteractables();
+  if(list.length){ list[0].fn(); }
+}
+
+/* ---------------- 19. 面板 UI ---------------- */
+let panelOpen=null;
+function showPanel(which){
+  hidePanels(); panelOpen=which;
+  const el=document.getElementById('panel-'+which); el.style.display='block'; G.state='panel';
+  if(which==='inv'){ const rows=document.getElementById('inv-rows');
+    rows.innerHTML=Object.keys(ITEMS).map(id=>{
+      const n=G.inv[id]||0;
+      return `<div class="row"><span>${ITEMS[id].name} ${n?'×'+n:'<span class="desc">无</span>'}</span>
+        <span class="desc">${ITEMS[id].desc}</span></div>`;}).join('');
+  }
+  if(which==='craft'){ renderCraft(); }
+  if(which==='quest'){ const rows=document.getElementById('quest-rows');
+    rows.innerHTML=Object.keys(QUESTS).map(id=>{ const q=G.quests[id];
+      const st=q.done?'<span style="color:#9fe8a0">已完成</span>':
+        q.started?`进行中 · ${QUESTS[id].steps[Math.min(q.step,QUESTS[id].steps.length-1)].hint}`:
+        '<span class="desc">未接取</span>';
+      return `<div class="row"><span>${QUESTS[id].title}</span><span class="desc">${st}</span></div>`;}).join('');
+  }
+}
+function renderCraft(){
+  const rows=document.getElementById('craft-rows');
+  rows.innerHTML=RECIPES.map((r,i)=>{
+    const locked=!G.flags[r.unlock];
+    const ok=Object.entries(r.ins).every(([id,n])=>(G.inv[id]||0)>=n);
+    return `<div class="row"><span>${r.name} ${locked?'<span class="desc">🔒 未解锁配方</span>':''}</span>
+      <span class="desc">${Object.entries(r.ins).map(([id,n])=>`${ITEMS[id].name}×${n}(有${G.inv[id]||0})`).join(' + ')}</span></div>`;
+  }).join('');
+  const r=RECIPES[0];
+  const ok=!!G.flags[r.unlock]&&Object.entries(r.ins).every(([id,n])=>(G.inv[id]||0)>=n);
+  document.getElementById('btn-craft').disabled=!ok;
+}
+function craftAction(){
+  const r=RECIPES[0];
+  if(!G.flags[r.unlock]) return;
+  if(!Object.entries(r.ins).every(([id,n])=>(G.inv[id]||0)>=n)){ AU.sfx('err'); return; }
+  Object.entries(r.ins).forEach(([id,n])=>takeItem(id,n));
+  addItem(r.out,1); renderCraft();
+}
+function hidePanels(){ ['inv','craft','quest'].forEach(p=>
+  document.getElementById('panel-'+p).style.display='none');
+  panelOpen=null; if(G&&G.state==='panel') G.state='play'; }
+function togglePause(on){
+  document.getElementById('pause').style.display=on?'flex':'none';
+  G.state=on?'pause':'play';
+}
+
+/* ---------------- 20. 渲染 ---------------- */
+function draw(){
+  const P=G.player;
+  ctx.save();
+  ctx.clearRect(0,0,VW,VH);
+  if(shake>0){ shake*=.85; if(shake<.3)shake=0;
+    ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake); }
+  ctx.translate(-cam.x,-cam.y);
+  // 图块
+  const c0=Math.max(0,Math.floor(cam.x/TS)), r0=Math.max(0,Math.floor(cam.y/TS));
+  const c1=Math.min(MW-1,Math.ceil((cam.x+VW)/TS)), r1=Math.min(MH-1,Math.ceil((cam.y+VH)/TS));
+  const tide=isTide();
+  for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++){
+    const v=ch(c,r), x=c*TS, y=r*TS;
+    if(v==='#'){ ctx.fillStyle='#34344a'; ctx.fillRect(x,y,TS,TS);
+      ctx.fillStyle='#3e3e58'; ctx.fillRect(x,y,TS,3); }
+    else if(v==='w'||((v==='.'||v===',')&&TIDE_SET.has(key(c,r))&&tide)){
+      const deep=TIDE_SET.has(key(c,r))&&tide;
+      ctx.fillStyle=deep?'#1d3f61':'#2e5f8a'; ctx.fillRect(x,y,TS,TS);
+      ctx.fillStyle='rgba(255,255,255,'+(0.05+0.04*Math.sin(perf/500+c+r))+')';
+      ctx.fillRect(x+4,y+8+4*Math.sin(perf/300+c),TS-8,2);
+    }
+    else if(v==='g'){ ctx.fillStyle='#4a4a62'; ctx.fillRect(x,y,TS,TS);
+      ctx.strokeStyle='#26263a'; for(let i=4;i<TS;i+=8){ctx.beginPath();ctx.moveTo(x+i,y);ctx.lineTo(x+i,y+TS);ctx.stroke();} }
+    else if(v==='l'){ ctx.fillStyle='#565672'; ctx.fillRect(x,y,TS,TS);
+      ctx.fillStyle='#7a6a52'; ctx.beginPath(); ctx.arc(x+16,y+18,10,0,7); ctx.fill();
+      ctx.fillStyle='#8f7c60'; ctx.beginPath(); ctx.arc(x+12,y+14,5,0,7); ctx.fill(); }
+    else if(v==='b'){ ctx.fillStyle='#14141f'; ctx.fillRect(x,y,TS,TS);
+      ctx.strokeStyle='#000'; ctx.strokeRect(x+.5,y+.5,TS-1,TS-1); }
+    else if(v==='B'){ ctx.fillStyle='#8a6a42'; ctx.fillRect(x,y,TS,TS);
+      ctx.strokeStyle='#6a4e2e'; for(let i=0;i<TS;i+=8){ctx.beginPath();ctx.moveTo(x,y+i);ctx.lineTo(x+TS,y+i);ctx.stroke();} }
+    else if(v==='D'){ ctx.fillStyle='#4a3a2a'; ctx.fillRect(x,y,TS,TS);
+      ctx.fillStyle='#6a5238'; ctx.fillRect(x+2,y+2,TS-4,TS-4);
+      ctx.fillStyle='#ffd98a'; ctx.beginPath(); ctx.arc(x+16,y+16,3,0,7); ctx.fill(); }
+    else { ctx.fillStyle=(c+r)%2?'#565672':'#5d5d7a'; ctx.fillRect(x,y,TS,TS); }
+  }
+  // 潮汐警戒边
+  if(tide){ ctx.strokeStyle='rgba(127,212,255,.35)';
+    TIDE_CELLS.forEach(([c,r])=>{ if(ch(c,r)!=='#') ctx.strokeRect(c*TS+1.5,r*TS+1.5,TS-3,TS-3); }); }
+  // 盐灯
+  drawLamp(19.5*TS,28.6*TS);
+  // 修复架
+  drawShelf(38.5*TS,4.2*TS,G.flags.repair_done);
+  // 记忆残响(守卫)
+  if(!G.skills.guard_blade&&!G.echoes.guard_blade.taken) drawEcho(17.5*TS,12.5*TS,'#9fe8ff');
+  if(G.dead.elite&&G.eliteDrop&&!G.skills.archivist_mechanism) drawEcho(G.eliteDrop.x,G.eliteDrop.y,'#ffd98a');
+  // 拾取物
+  for(const p of G.pickups){ if(G.takenPickups[p.id])continue;
+    const bob=Math.sin(perf/300+p.x)*2;
+    ctx.fillStyle=p.item==='salt'?'#f2ecda':p.item==='gel_orb'?'#7fd4ff':'#e8d48a';
+    ctx.beginPath(); ctx.arc(p.x,p.y+bob,5,0,7); ctx.fill();
+    ctx.strokeStyle='#0008'; ctx.stroke();
+  }
+  // NPC
+  drawBlob(18.5*TS,29.5*TS,12,'#e8b4b4',0); drawName('薇尔',18.5*TS,29.5*TS-20);
+  drawBlob(25.5*TS,30.5*TS,11,'#b4c9e8',0); drawName('波普',25.5*TS,30.5*TS-20);
+  // 敌人
+  for(const e of G.enemies){ if(e.dead)continue;
+    const flash=e.hurtT>0, tele=e.tele>0;
+    drawBlob(e.x,e.y,e.type==='archivist_wraith'?16:10,
+      flash?'#ffffff':(e.type==='archivist_wraith'?'#8a4a5a':'#b4533a'),
+      Math.sin(perf/150+e.x)*1.5, e.type==='archivist_wraith');
+    if(tele){ ctx.strokeStyle='#ff6a6a'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(e.x,e.y,20+6*Math.sin(perf/60),0,7); ctx.stroke(); ctx.lineWidth=1; }
+    // 血条
+    if(e.hp<e.hp){} // 简化:受伤才显示
+    if(e.hp<ENEMY_DEF[e.type].hp){ const w=28;
+      ctx.fillStyle='#000a'; ctx.fillRect(e.x-w/2,e.y-22,w,4);
+      ctx.fillStyle='#e86a7c'; ctx.fillRect(e.x-w/2,e.y-22,w*e.hp/ENEMY_DEF[e.type].hp,4); }
+  }
+  // 建造模式高亮
+  if(Build.on){ const cells=Build.gapCells();
+    ctx.fillStyle='rgba(127,212,255,.25)';
+    cells.forEach(([c,r])=>{ if(Math.hypot((c+.5)*TS-P.x,(r+.5)*TS-P.y)<5*TS)
+      ctx.fillRect(c*TS+2,r*TS+2,TS-4,TS-4); });
+    const[mc,mr]=cellOf(mouse.wx||0,mouse.wy||0);
+    if(ch(mc,mr)==='b'){ ctx.strokeStyle='#7fd4ff'; ctx.lineWidth=2;
+      ctx.strokeRect(mc*TS+2,mr*TS+2,TS-4,TS-4); ctx.lineWidth=1; }
+  }
+  // 玩家
+  drawPlayer();
+  // 投射物
+  ctx.fillStyle='#cfeaff';
+  for(const p of G.projectiles){ ctx.beginPath(); ctx.arc(p.x,p.y,4,0,7); ctx.fill(); }
+  // 特效
+  for(const f of G.fx){ f.t-=1/60;
+    if(f.type==='slash'){ ctx.strokeStyle='rgba(255,255,255,'+(f.t/.18)+')'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(f.x,f.y,30,f.dir-1+f.combo*.4,f.dir+.6+f.combo*.4); ctx.stroke(); ctx.lineWidth=1; }
+  }
+  G.fx=G.fx.filter(f=>f.t>0);
+  // 吸收引导环
+  if(P.channel){ ctx.strokeStyle='#ffd98a'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(P.x,P.y-26,10,-Math.PI/2,-Math.PI/2+7*P.channel.t/P.channel.dur); ctx.stroke(); ctx.lineWidth=1; }
+  // 夜色
+  const phase=G.time/DAY_LEN%1;
+  const dark=(phase>NIGHT_AT)?Math.min(.42,(phase-NIGHT_AT)*2):0;
+  if(dark>0){ ctx.fillStyle=`rgba(16,20,60,${dark})`; ctx.fillRect(cam.x,cam.y,VW,VH);
+    // 灯光
+    const g=ctx.createRadialGradient(19.5*TS,28.6*TS,10,19.5*TS,28.6*TS,150);
+    g.addColorStop(0,'rgba(255,217,138,.30)'); g.addColorStop(1,'rgba(255,217,138,0)');
+    ctx.fillStyle=g; ctx.fillRect(19.5*TS-150,28.6*TS-150,300,300);
+  }
+  ctx.restore();
+}
+function drawBlob(x,y,r,col,wob,elite){
+  ctx.fillStyle=col; ctx.beginPath();
+  for(let i=0;i<=16;i++){ const a=i/16*Math.PI*2;
+    const rr=r+wob*Math.sin(a*3+perf/120)+(i===16?0:0);
+    const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr*.85;
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); }
+  ctx.closePath(); ctx.fill();
+  if(elite){ ctx.strokeStyle='#ffd98a'; ctx.lineWidth=2; ctx.stroke(); ctx.lineWidth=1; }
+  // 眼睛
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x-4,y-3,2.4,0,7); ctx.arc(x+4,y-3,2.4,0,7); ctx.fill();
+  ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(x-4,y-3,1.1,0,7); ctx.arc(x+4,y-3,1.1,0,7); ctx.fill();
+}
+function drawName(t,x,y){ ctx.fillStyle='#fffc'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText(t,x,y); ctx.textAlign='left'; }
+function drawLamp(x,y){
+  ctx.fillStyle='#5a4a32'; ctx.fillRect(x-3,y-6,6,22);
+  ctx.fillStyle='#ffd98a'; ctx.beginPath(); ctx.arc(x,y-10,6+Math.sin(perf/250)*1.2,0,7); ctx.fill();
+  ctx.strokeStyle='#e8c87a'; ctx.stroke();
+}
+function drawShelf(x,y,fixed){
+  ctx.fillStyle=fixed?'#8a6a42':'#4a4038'; ctx.fillRect(x-14,y-14,28,26);
+  ctx.fillStyle=fixed?'#e8d4a0':'#2e2820';
+  for(let i=0;i<3;i++) ctx.fillRect(x-11,y-10+i*8,22,3);
+  if(!fixed){ ctx.fillStyle='rgba(46,95,138,.5)'; ctx.fillRect(x-14,y+2,28,10); }
+}
+function drawEcho(x,y,col){
+  const b=Math.sin(perf/240)*3;
+  ctx.strokeStyle=col; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(x,y+b-6,8,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y+b-6,13+2*Math.sin(perf/180),0,7); ctx.stroke();
+  ctx.lineWidth=1;
+  ctx.fillStyle=col; ctx.font='10px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('记忆残响',x,y+b+16); ctx.textAlign='left';
+}
+function drawPlayer(){
+  const P=G.player;
+  const y=P.y-P.z;
+  // 影子
+  ctx.fillStyle='rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.ellipse(P.x,P.y+8,9-P.z*.12,4-P.z*.04,0,0,7); ctx.fill();
+  // 闪烁(无敌)
+  if(P.inv>0&&Math.floor(perf/80)%2) return;
+  const sq=P.dashT>0?1.25:(P.hopT>=0?1.15:1+Math.sin(perf/160)*.04);
+  drawBlob(P.x,y,PLAYER_R+2,COLOR[P.form],P.dashT>0?2:1.2);
+  // squash提示
+  ctx.save(); ctx.translate(P.x,y); ctx.scale(1/sq,sq); ctx.restore();
+}
+function updateFormChip(){
+  const chip=document.getElementById('form-chip');
+  chip.textContent=FORM_NAME[G.player.form]; chip.style.color=COLOR[G.player.form];
+}
+
+/* ---------------- 21. HUD 刷新 ---------------- */
+function updateHUD(){
+  const P=G.player;
+  document.getElementById('hp-fill').style.width=(P.hp/MAX_HP*100)+'%';
+  document.getElementById('gel-fill').style.width=(P.gel/MAX_GEL*100)+'%';
+  const phase=G.time/DAY_LEN%1;
+  document.getElementById('clock').textContent=(isNight()?'🌙 夜晚 ':'🌞 白天 ')+
+    Math.floor(phase*24).toString().padStart(2,'0')+':00';
+  document.getElementById('tide-warn').style.display=isTide()?'inline':'none';
+  const list=getInteractables();
+  const pr=document.getElementById('prompt');
+  if(list.length&&G.state==='play'){ pr.style.display='block'; pr.innerHTML='<b>E</b> '+list[0].label; }
+  else pr.style.display='none';
+}
+
+/* ---------------- 22. 主循环 ---------------- */
+let perf=0,last=0,_lastRaf=0;
+function loop(t){
+  if(!window.__pumping) requestAnimationFrame(loop);
+  _lastRaf=performance.now();
+  const dt=Math.min(.05,(t-last)/1000)||0; last=t; perf=t;
+  if(!G){ return; }
+  if(G.state==='play'){
+    G.time+=dt; G.playSecs+=dt;
+    // 昼夜切换氛围
+    if((isNight())!==G._wasNight){ G._wasNight=isNight(); AU.ambient(G._wasNight); }
+    updatePlayer(dt); updateEnemies(dt); updateProjectiles(dt);
+    // 鼠标世界坐标
+    mouse.wx=mouse.x+cam.x; mouse.wy=mouse.y+cam.y;
+    cam.x=clamp(lerp(cam.x,G.player.x-VW/2,dt*6),0,MW*TS-VW);
+    cam.y=clamp(lerp(cam.y,G.player.y-VH/2,dt*6),0,MH*TS-VH);
+  }
+  if(G.state==='dialog'){ Dlg.update(dt); }
+  if(G.state==='play'||G.state==='dialog'){ draw(); updateHUD(); }
+}
+function lerp(a,b,t){return a+(b-a)*t;}
+
+/* ---------------- 23. 标题 / 启动 ---------------- */
+document.getElementById('btn-new').onclick=()=>{ AU.ensure(); newGame();
+  document.getElementById('title').style.display='none'; AU.ambient(false); refreshTracker(); updateFormChip(); };
+document.getElementById('btn-continue').onclick=()=>{ AU.ensure();
+  if(loadGame('auto')){ document.getElementById('title').style.display='none'; AU.ambient(isNight()); } };
+document.getElementById('btn-resume').onclick=()=>togglePause(false);
+document.getElementById('btn-save').onclick=()=>{saveGame('slot');togglePause(false);};
+document.getElementById('btn-load').onclick=()=>{togglePause(false);loadGame('slot');};
+document.getElementById('btn-quit').onclick=()=>{togglePause(false);document.getElementById('title').style.display='flex';G.state='title';};
+document.getElementById('btn-again').onclick=()=>{document.getElementById('ending').style.display='none';document.getElementById('title').style.display='flex';G.state='title';};
+document.getElementById('btn-craft').onclick=()=>craftAction();
+try{ document.getElementById('btn-continue').disabled=!localStorage.getItem('som_auto'); }catch(e){}
+
+/* 后台标签页 rAF 停摆时,用定时器补帧保证游戏继续推进 */
+setInterval(function(){
+  var now=performance.now();
+  if(now-_lastRaf<250) return;
+  var gap=Math.min(now-_lastRaf,2000);
+  window.__pumping=true;
+  while(gap>0){ var s=Math.min(50,gap); _lastRaf+=s; loop(_lastRaf); gap-=s; }
+  window.__pumping=false;
+},120);
+
+/* 调试钩子(测试用) */
+window.__G=()=>G; window.__tp=(c,r)=>{G.player.x=(c+.5)*TS;G.player.y=(r+.5)*TS;};
+window.__give=(id,n)=>addItem(id,n||1);
+window.__dlg=id=>Dlg.open(id);
+window.__press=code=>Input.onKey(code);
+window.__click=()=>Input.onClick();
+window.__load=()=>loadGame('auto');
+window.__save=()=>saveGame('auto');
+window.__pump=(ms,step=33)=>{ window.__pumping=true;
+  for(let t=perf+step;t<=perf+ms;t+=step) loop(t);
+  window.__pumping=false; };
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
