@@ -102,6 +102,13 @@ const sfx = {
   throwCoin(){ beep(1046,.05,'sine',.12); setTimeout(()=>beep(1568,.06,'sine',.1),90); },
   smoke(){ beep(220,.25,'sine',.14,-80); },
   growl(){ beep(72,.5,'sawtooth',.3,-40); },
+  bell(){ if (muted) return; const a = ac(); if (!a) return;
+    const mk = (f, v, dur) => { const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(v, a.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+      o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + dur + 0.05); };
+    mk(392, 0.15, 2.4); mk(587, 0.07, 1.7); mk(784, 0.04, 1.2); },
   snort(){ beep(150,.07,'square',.12); setTimeout(()=>beep(120,.07,'square',.1),110); },
   // 第五人格式心跳：低频闷响"咚-咚"，音量与节奏随危险变化
   heart(vol){ if (muted) return; const a = ac(); if (!a) return;
@@ -197,6 +204,7 @@ const LEVELS = [
   furniture:[[170,240,130,54,'table'],[600,430,90,120,'shelf'],[150,440,150,64,'sofa']],
   shadows:[[440,92,90,60],[430,370,200,120]],
   glows:[], lamps:[{x:350,y:150},{x:740,y:480}], gadgets:[{x:250,y:140}],
+  decor:[{type:'plant',x:90,y:120},{type:'plant',x:870,y:120}],
   treasures:[{type:'coin',x:95,y:270},{type:'gem',x:845,y:150},{type:'vase',x:790,y:500}],
   guards:[{img:'mob_cat', trait:'scan', path:[[140,180],[480,180],[480,300],[140,300]], speed:62, R:180, fov:80}],
   npcs:[{img:'npc_4', x:300, y:480, box:[100,400,320,160]}, {img:'npc_7', x:700, y:300, box:[600,360,280,200]}],
@@ -221,6 +229,7 @@ const LEVELS = [
   furniture:[[350,240,96,40,'bench'],[350,480,96,40,'bench'],[120,300,44,110,'bench'],[800,300,44,110,'bench']],
   shadows:[[400,320,180,130]],
   glows:[], lamps:[{x:250,y:460},{x:600,y:420}], gadgets:[{x:250,y:120}],
+  decor:[{type:'paint',x:150,y:100,v:0},{type:'paint',x:300,y:100,v:1},{type:'paint',x:490,y:100,v:2},{type:'paint',x:640,y:100,v:0},{type:'paint',x:820,y:100,v:1}],
   treasures:[{type:'pic',x:120,y:160},{type:'pic',x:860,y:160},{type:'crown',x:480,y:545},{type:'gem',x:220,y:540},{type:'coin',x:700,y:120}],
   guards:[
     {img:'mob_bear', trait:'charge', path:[[480,140],[480,540]], speed:60, R:205, fov:60},
@@ -235,6 +244,7 @@ const LEVELS = [
   furniture:[[100,110,44,44,'crate'],[860,110,44,44,'crate'],[770,220,70,90,'coffin'],[300,300,60,50,'crate']],
   shadows:[],
   glows:[[480,300,72],[150,500,64],[860,480,60]], lamps:[{x:480,y:150},{x:750,y:450}], gadgets:[{x:600,y:120}],
+  decor:[{type:'barrel',x:185,y:125},{type:'barrel',x:225,y:135},{type:'barrel',x:660,y:470},{type:'barrel',x:695,y:490},{type:'barrel',x:160,y:520}],
   treasures:[{type:'gem',x:110,y:300},{type:'coin',x:850,y:300},{type:'vase',x:120,y:545},{type:'crown',x:660,y:545},{type:'gem',x:865,y:545}],
   guards:[
     {img:'mob_skeleton', trait:'ghost', roam:true, speed:52, R:150, fov:360},
@@ -268,6 +278,7 @@ const LEVELS = [
   glows:[[480,300,80]], lamps:[{x:250,y:300},{x:700,y:450}], gadgets:[{x:80,y:180}],
   gates:[{x:450,y:384,w:60,h:16}],
   keyAt:{x:865,y:120},
+  decor:[{type:'bell',x:300,y:110},{type:'bell',x:700,y:110},{type:'bell',x:480,y:300,big:true}],
   treasures:[{type:'crown',x:480,y:262},{type:'gem',x:450,y:330},{type:'coin',x:860,y:300},{type:'gem',x:120,y:200},{type:'vase',x:120,y:545},{type:'coin',x:700,y:545}],
   guards:[
     {img:'mob_croc', trait:'boss', path:[[480,160],[820,160],[820,520],[480,520],[180,520],[180,160]], speed:55, R:300, fov:70},
@@ -303,13 +314,12 @@ const LEVELS = [
 ];
 
 /* ---------------- 状态 ---------------- */
-const S = { mode:'loading', lvIndex:0, level:null, guards:[], npcs:[], treasures:[], gadgets:[], lamps:[], player:null,
+const S = { mode:'loading', lvIndex:0, level:null, guards:[], npcs:[], treasures:[], gadgets:[], lamps:[], gates:[], keyItem:null, player:null,
   score:0, lvStartScore:0, lives:3, t:0, best:+(localStorage.getItem('burglar_best')||0),
   exitOpen:false, msg:'', msgT:0, flash:0, paused:false, blink:0,
-  shake:0, danger:0, beatT:0, spaceEdge:false, qEdge:false, eEdge:false, cEdge:false, trail:[], trailT:0,
-  cam:{u:0, v:0, init:false}, items:{smoke:1, coin:3, potion:1}, smokes:[], coinFx:[], puddles:[], potions:[], keyItem:null,
-  lvTime:0, busted:0, musicT:0, musicStep:0, daily:false, showAch:false,
-  best:0 };
+  shake:0, danger:0, beatT:0, spaceEdge:false, trail:[], trailT:0,
+  cam:{u:0, v:0, init:false}, bells:[], wasSuspected:false, clean:true, busted:0, bellT:5,
+  showAch:false };
 S.best = +(localStorage.getItem('burglar_best')||0);
 const ALLY = [];
 window.__G = S; window.__BUILD = buildLevel;
@@ -326,6 +336,7 @@ function buildLevel(i){
     furniture: L.furniture.map(f=>[sp(f[0]),sp(f[1]),sp(f[2]),sp(f[3]),f[4]]),
     shadows: L.shadows.map(s=>[sp(s[0]),sp(s[1]),sp(s[2]),sp(s[3])]),
     glows: (L.glows||[]).map(g=>[sp(g[0]),sp(g[1]),sp(g[2])]),
+    decor: (L.decor||[]).map(d=>({...d, x:sp(d.x), y:sp(d.y)})),
     lamps: (L.lamps||[]).map(l=>({x:sp(l.x), y:sp(l.y)})),
     treasures: L.treasures.map(t=>({type:t.type, x:sp(t.x), y:sp(t.y)})),
     exit: {x:sp(L.exit.x), y:sp(L.exit.y), w:sp(L.exit.w)},
@@ -359,22 +370,10 @@ function buildLevel(i){
   S.lvStartScore = S.score;
   S.exitOpen = false; S.msg=''; S.msgT=0; S.flash=0; S.shake=0; S.danger=0; S.beatT=0;
   S.trail.length = 0; S.trailT = 0; S.cam.init = false; S.keysN = 0;
-  S.items = {smoke:1, coin:3, potion:1}; S.smokes.length = 0; S.coinFx.length = 0; S.puddles.length = 0; S.potions.length = 0;
-  S.lvTime = 0; S.busted = 0;
+  S.busted = 0; S.wasSuspected = false; S.clean = true; S.bellT = 5; S.bellSwing = 1;
+  S.keysN = 0;
   // 万能钥匙
   S.keyItem = L.keyAt ? {x:sp(L.keyAt.x), y:sp(L.keyAt.y), got:false} : null;
-  // 每日挑战：按日期种子扰动守卫
-  if (S.daily){
-    const d = new Date();
-    const seed = d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate();
-    const rnd = mulberry32(seed + i*7);
-    for (const g of S.guards){
-      if (g.path.length){ g.wp = (rnd()*g.path.length)|0; }
-      g.speed = Math.round(g.speed*(0.9 + rnd()*0.25));
-      g.scanT = rnd()*10;
-    }
-    if (S.lamps.length && rnd() < 0.5) S.lamps[(rnd()*S.lamps.length)|0].on = true;
-  }
   // 开场运镜路径：大门 → 首个守卫 → 出生点
   const ec = {x: sp(L.exit.x)+sp(L.exit.w)/2, y: sp(L.exit.y)+40};
   const g0 = L.guards[0];
@@ -434,7 +433,6 @@ function inLight(x,y){
 /* ---------------- 视野参数与感知 ---------------- */
 function visParams(g){
   let R = g.R, flash = false;
-  if (g.dulled > 0) R = R*0.35;                // 钝化：视野大幅缩水
   if (g.trait==='lance'){
     const c = g.scanT % 3.6;
     if (c > 2.9) R = g.R*2.6;                    // 吐信突刺：更长更频繁
@@ -450,12 +448,6 @@ function canSee(g, sneak){
   const vp = visParams(g);
   const d = dist(g.x,g.y,p.x,p.y);
   if (d > vp.R) return 0;
-  // 烟雾遮断视线
-  for (const s of S.smokes){
-    const vx = p.x-g.x, vy = p.y-g.y, L2 = vx*vx+vy*vy || 1;
-    let tt = ((s.x-g.x)*vx + (s.y-g.y)*vy)/L2; tt = clamp(tt,0,1);
-    if (dist(g.x+vx*tt, g.y+vy*tt, s.x, s.y) < 150) return 0;
-  }
   if (!g.fixed && (g.trait==='ghost' || g.trait==='phase')){
     if (g.trait==='phase'){
       const rel2 = Math.atan2(p.y-g.y, p.x-g.x);
@@ -503,9 +495,8 @@ function ghostRoam(g, dt){
   }
   const ta = Math.atan2(g.ry-g.y, g.rx-g.x);
   g.ang = lerpAng(g.ang, ta, Math.min(1, dt*3));
-  const dull = g.dulled > 0 ? 0.6 : 1;
-  g.x += Math.cos(g.ang)*g.speed*1.0*dull*dt;
-  g.y += Math.sin(g.ang)*g.speed*1.0*dull*dt;
+  g.x += Math.cos(g.ang)*g.speed*1.0*dt;
+  g.y += Math.sin(g.ang)*g.speed*1.0*dt;
 }
 function guardUpdate(g, dt){
   const p = S.player;
@@ -514,12 +505,6 @@ function guardUpdate(g, dt){
   g.bubbleShow = Math.max(0, (g.bubbleShow||0) - dt);
   g.rushT = Math.max(0, (g.rushT||0) - dt);
   g.msgCd = Math.max(0, (g.msgCd||0) - dt);
-  // 钝化药水：踩进药水池的守卫又瞎又慢
-  for (const pd of S.puddles){
-    if (dist(g.x,g.y,pd.x,pd.y) < 130) g.dulled = Math.max(g.dulled||0, 1.0);
-  }
-  g.dulled = Math.max(0, (g.dulled||0) - dt);
-  const dull = g.dulled > 0 ? 0.6 : 1;
   const turn = g.trait==='slow' ? 1.6 : 6;
   if (g.fixed){
     if (g.trait==='beam'){ g.ang += dt*0.85; }          // 光束雕像：持续旋转扫射
@@ -583,7 +568,7 @@ function guardUpdate(g, dt){
           g.dart.t -= dt;
           const ta = Math.atan2(g.dart.y-g.y, g.dart.x-g.x);
           g.ang = lerpAng(g.ang, ta, Math.min(1, dt*10));
-          const [gx,gy] = collide(g.x + Math.cos(g.ang)*g.speed*2.6*dull*dt, g.y + Math.sin(g.ang)*g.speed*2.6*dull*dt, 16);
+          const [gx,gy] = collide(g.x + Math.cos(g.ang)*g.speed*2.6*dt, g.y + Math.sin(g.ang)*g.speed*2.6*dt, 16);
           g.x = gx; g.y = gy;
           if (g.dart.t <= 0 || dist(g.x,g.y,g.dart.x,g.dart.y) < 20) g.dart = null;
           if (dist(g.x,g.y,p.x,p.y) < 26) caught();
@@ -627,7 +612,7 @@ function guardUpdate(g, dt){
         const ox = g.x, oy = g.y;
         const ta = Math.atan2(ty-g.y, tx-g.x);
         g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
-        g.x += Math.cos(g.ang)*g.speed*dull*dt; g.y += Math.sin(g.ang)*g.speed*dull*dt;
+        g.x += Math.cos(g.ang)*g.speed*dt; g.y += Math.sin(g.ang)*g.speed*dt;
         const [gx,gy] = collide(g.x, g.y, 16);
         if (dist(ox,oy,gx,gy) < g.speed*dt*0.3){ g.stuckT = (g.stuckT||0)+dt;
           if (g.stuckT > 1.2){ g.wp = (g.wp+1)%g.path.length; g.stuckT = 0; } }
@@ -640,7 +625,7 @@ function guardUpdate(g, dt){
         if (d > 10){
           const ta = Math.atan2(g.lastSeen.y-g.y, g.lastSeen.x-g.x);
           g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
-          const rs = g.speed * (g.rushT > 0 ? 2.0 : 1.35) * dull;
+          const rs = g.speed * (g.rushT > 0 ? 2.0 : 1.35);
           g.x += Math.cos(g.ang)*rs*dt; g.y += Math.sin(g.ang)*rs*dt;
         } else {
           // 到达目击点：在附近生成 2 个搜索点逐个排查
@@ -674,7 +659,7 @@ function guardUpdate(g, dt){
       const tx = g.lastSeen ? g.lastSeen.x : p.x, ty = g.lastSeen ? g.lastSeen.y : p.y;
       const ta = Math.atan2(ty-g.y, tx-g.x);
       g.ang = lerpAng(g.ang, ta, Math.min(1, dt*8));
-      const cs = g.speed * (g.trait==='charge' ? 2.9 : 1.6) * dull;
+      const cs = g.speed * (g.trait==='charge' ? 2.9 : 1.6);
       g.x += Math.cos(g.ang)*cs*dt; g.y += Math.sin(g.ang)*cs*dt;
     }
     const [nx,ny] = collide(g.x, g.y, 16);
@@ -736,7 +721,6 @@ function playerUpdate(dt){
   S.trailT -= dt;
   if (S.trailT <= 0){ S.trail.push({x:p.x, y:p.y, t:S.t}); if (S.trail.length > 60) S.trail.shift(); S.trailT = 0.25; }
 
-  // ===== 道具：烟雾弹 [Q] / 抛硬币 [E] / 钝化药水 [C] =====
   const holding = !!keys[' '];
   let best = null, bestD = 1e9;
   for (const t of S.treasures){
@@ -810,17 +794,6 @@ function playerUpdate(dt){
       } else setMsg('台灯关了', 1);
     }
   }
-  // ===== 钝化药水 [C]：掷出后让踩中的守卫又瞎又慢 =====
-  if (S.cEdge){
-    S.cEdge = false;
-    if (S.items.potion > 0){
-      S.items.potion--;
-      const tx = clamp(p.x + Math.cos(p.ang)*260, ROOM.x+30, ROOM.x+ROOM.w-30);
-      const ty = clamp(p.y + Math.sin(p.ang)*260, ROOM.y+30, ROOM.y+ROOM.h-30);
-      S.coinFx.push({x0:p.x, y0:p.y, x1:tx, y1:ty, t:0, landed:false, kind:'potion'});
-      sfx.smoke(); setMsg('钝化药水 —— 怪物踩到会又瞎又慢', 1.5);
-    }
-  }
   // 万能钥匙拾取
   if (S.keyItem && !S.keyItem.got && dist(p.x,p.y,S.keyItem.x,S.keyItem.y) < 46){
     S.keyItem.got = true; S.keysN = (S.keysN||0)+1; sfx.pick();
@@ -846,36 +819,13 @@ function playerUpdate(dt){
   } else { S.exposeT = 0; }
   p.wasExposed = exposed;
   // ===== 道具：烟雾弹 [Q] / 抛硬币 [E] =====
-  if (S.qEdge){
-    S.qEdge = false;
-    if (S.items.smoke > 0){
-      S.items.smoke--;
-      S.smokes.push({x:p.x, y:p.y, life:3.5, max:3.5});
-      sfx.smoke(); setMsg('烟雾弹！—— 遮断守卫的视线', 1.5);
-    }
-  }
-  if (S.eEdge){
-    S.eEdge = false;
-    if (S.items.coin > 0){
-      S.items.coin--;
-      const tx = clamp(p.x + Math.cos(p.ang)*240, ROOM.x+20, ROOM.x+ROOM.w-20);
-      const ty = clamp(p.y + Math.sin(p.ang)*240, ROOM.y+20, ROOM.y+ROOM.h-20);
-      S.coinFx.push({x0:p.x, y0:p.y, x1:tx, y1:ty, t:0, landed:false});
-      sfx.throwCoin(); setMsg('抛出一枚硬币……', 1);
-    }
-  }
   // 出口
   const e = S.level.exit;
   const left = S.treasures.filter(t=>!t.got).length;
   const nearExit = p.x > e.x - 30 && p.x < e.x + e.w + 30 && p.y > ROOM.y + ROOM.h - 46;
   if (S.exitOpen && nearExit){ if (S.mode==='play') levelClear(); }
   else if (nearExit){
-    if (S.keysN > 0){
-      if (S.spaceEdge){
-        S.keysN--; S.exitOpen = true; sfx.door();
-        setMsg('万能钥匙转动 —— 大门开了！', 2.5);
-      } else if (S.msgT <= 0) setMsg('按空格 · 用万能钥匙开门', 1.6);
-    } else if (S.msgT <= 0){ setMsg('大门锁着 —— 还差 ' + left + ' 件宝物', 1.6); }
+    if (S.msgT <= 0){ setMsg('大门锁着 —— 还差 ' + left + ' 件宝物', 1.6); }
   }
   // 上锁栅门：万能钥匙的真正用途
   for (const gt of S.gates){
@@ -910,13 +860,12 @@ function mulberry32(a){ return function(){ a|=0; a = a+0x6D2B79F5|0; let t = Mat
 // 成就
 const ACH = [
   {id:'first',    name:'首夜告捷',     desc:'通过第一夜'},
-  {id:'shadow',   name:'无影之贼',     desc:'任意关卡拿到 S 评价'},
+  {id:'shadow',   name:'无影之贼',     desc:'整关未引起任何守卫怀疑'},
   {id:'ghost',    name:'来无影去无踪', desc:'整关从未被抓'},
   {id:'rich',     name:'满载而归',     desc:'单关战利品 ≥ ¥400'},
   {id:'locksmith',name:'开锁匠',       desc:'用万能钥匙打开一座栅门'},
   {id:'boss',     name:'屠鳄英雄',     desc:'通过钟楼'},
-  {id:'daily',    name:'每日一偷',     desc:'完成一次每日挑战'},
-  {id:'master',   name:'神偷',         desc:'全部关卡拿到 S 评价'}
+  {id:'master',   name:'神偷',         desc:'全部关卡零怀疑通关'}
 ];
 function achGot(){ try{ return JSON.parse(localStorage.getItem('burglar_ach')||'{}'); }catch(e){ return {}; } }
 function unlock(id){
@@ -931,36 +880,26 @@ function unlock(id){
 }
 function levelClear(){
   S.mode = 'clear'; sfx.win();
-  S.rating = (S.busted === 0 && S.lvTime <= PARS[S.lvIndex]) ? 'S'
-           : (S.busted <= 1 && S.lvTime <= PARS[S.lvIndex]*1.5) ? 'A' : 'B';
-  let rates = {};
-  try{ rates = JSON.parse(localStorage.getItem('burglar_rates')||'{}'); }catch(e){}
-  const order = {S:3, A:2, B:1};
-  if (!rates[S.lvIndex] || order[S.rating] > order[rates[S.lvIndex]]){
-    rates[S.lvIndex] = S.rating;
-    localStorage.setItem('burglar_rates', JSON.stringify(rates));
+  if (!S.wasSuspected){
+    S.clean = true;
+    try{
+      const cl = JSON.parse(localStorage.getItem('burglar_clean')||'{}');
+      cl[S.lvIndex] = true;
+      localStorage.setItem('burglar_clean', JSON.stringify(cl));
+    }catch(e){}
   }
-  S.bestRate = rates[S.lvIndex];
   if (S.lvIndex===0) unlock('first');
-  if (S.rating==='S') unlock('shadow');
+  if (!S.wasSuspected) unlock('shadow');
   if (S.busted===0) unlock('ghost');
   if (S.score >= 400) unlock('rich');
   if (S.lvIndex===LEVELS.length-1) unlock('boss');
-  if (S.daily) unlock('daily');
   try{
-    const r2 = JSON.parse(localStorage.getItem('burglar_rates')||'{}');
-    if (Object.keys(r2).length >= LEVELS.length && Object.values(r2).every(v=>v==='S')) unlock('master');
+    const cl = JSON.parse(localStorage.getItem('burglar_clean')||'{}');
+    if (Object.keys(cl).length >= LEVELS.length) unlock('master');
   }catch(e){}
   if (S.lvIndex >= LEVELS.length-1){
     S.mode = 'win';
     if (S.score > S.best){ S.best = S.score; localStorage.setItem('burglar_best', S.best); }
-    if (S.daily){
-      const d = new Date();
-      const dk = 'burglar_daily_' + (d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate());
-      const prev = +(localStorage.getItem(dk)||0);
-      if (S.score > prev) localStorage.setItem(dk, S.score);
-      S.dailyBest = Math.max(prev, S.score);
-    }
   }
 }
 function onKey(k){
@@ -974,16 +913,12 @@ function onKey(k){
   }
   if (k==='p' && (S.mode==='play') && !S.showAch){ S.paused = !S.paused; sfx.ui(); }
   if (S.mode==='title'){
-    if (k===' '){ S.score=0; S.lives=3; S.daily=false; buildLevel(0); sfx.ui(); }
-    if (k==='d'){ S.score=0; S.lives=3; S.daily=true; buildLevel((new Date().getDate())%LEVELS.length); sfx.ui(); }
-    if (k>='1' && k<='7'){ S.score=0; S.lives=3; S.daily=false; buildLevel(parseInt(k,10)-1); sfx.ui(); }
+    if (k===' '){ S.score=0; S.lives=3; buildLevel(0); sfx.ui(); }
+    if (k>='1' && k<='7'){ S.score=0; S.lives=3; buildLevel(parseInt(k,10)-1); sfx.ui(); }
   } else if (S.mode==='play'){
     if (S.flyover > 0){ S.flyover = 0.01; S.cam.init = false; return; }   // 任意键跳过开场运镜
     if (k==='r'){ S.score = S.lvStartScore; buildLevel(S.lvIndex); sfx.ui(); }
     if (k===' ') S.spaceEdge = true;
-    if (k==='q') S.qEdge = true;
-    if (k==='e') S.eEdge = true;
-    if (k==='c') S.cEdge = true;
     if (k==='g'){ S.treasures.forEach(t=>t.got=true); S.exitOpen=true; sfx.door(); setMsg('出口打开了',1.5); }
   } else if (S.mode==='clear'){
     if (k===' '){ buildLevel(S.lvIndex+1); sfx.ui(); }
@@ -1093,6 +1028,48 @@ function buildStatic(){
     g.beginPath(); g.moveTo(sA.x,sA.y); g.lineTo(sB.x,sB.y); g.lineTo(sC.x,sC.y); g.lineTo(sD.x,sD.y); g.closePath(); g.stroke();
     g.setLineDash([]);
   }
+  // 主题装饰（静态：绿植/酒桶/挂画）
+  for (const d of (S.level.decor||[])){
+    if (d.type === 'bell') continue;
+    const DP = P(d.x, d.y);
+    if (d.type === 'plant'){
+      g.fillStyle = '#111';
+      g.beginPath(); g.ellipse(DP.x, DP.y, 12, 8, 0, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1.5;
+      g.beginPath(); g.ellipse(DP.x, DP.y, 12, 8, 0, 0, TAU); g.stroke();
+      for (const a of [-2.4, -1.6, -0.9, -0.2, 0.5]){
+        g.fillStyle = 'rgba(255,255,255,0.55)';
+        g.beginPath();
+        g.ellipse(DP.x + Math.cos(a)*10, DP.y-14 + Math.sin(a)*6, 3.5, 10, a, 0, TAU);
+        g.fill();
+      }
+    } else if (d.type === 'barrel'){
+      g.fillStyle = '#141414';
+      g.beginPath(); g.ellipse(DP.x, DP.y, 20, 15, 0, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 1.5;
+      g.beginPath(); g.ellipse(DP.x, DP.y, 20, 15, 0, 0, TAU); g.stroke();
+      g.beginPath(); g.ellipse(DP.x, DP.y, 13, 9.5, 0, 0, TAU); g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.5)';
+      g.beginPath(); g.arc(DP.x, DP.y, 2.2, 0, TAU); g.fill();
+    } else if (d.type === 'paint'){
+      const w = 64, h = 52;
+      g.fillStyle = '#060606';
+      g.fillRect(DP.x-w/2, DP.y-h/2, w, h);
+      g.strokeStyle = '#fff'; g.lineWidth = 2.5;
+      g.strokeRect(DP.x-w/2, DP.y-h/2, w, h);
+      g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = 1.5;
+      if (d.v === 0){
+        g.beginPath(); g.arc(DP.x, DP.y-8, 8, 0, TAU); g.stroke();
+        g.beginPath(); g.moveTo(DP.x-12, DP.y+16); g.quadraticCurveTo(DP.x, DP.y+2, DP.x+12, DP.y+16); g.stroke();
+      } else if (d.v === 1){
+        g.beginPath(); g.moveTo(DP.x-20, DP.y+12); g.lineTo(DP.x-4, DP.y-10); g.lineTo(DP.x+6, DP.y+2); g.lineTo(DP.x+20, DP.y+12); g.stroke();
+      } else {
+        g.beginPath(); g.arc(DP.x-8, DP.y-4, 6, 0, TAU); g.stroke();
+        g.beginPath(); g.moveTo(DP.x+2, DP.y+8); g.lineTo(DP.x+16, DP.y-10); g.stroke();
+        g.beginPath(); g.arc(DP.x+12, DP.y+6, 3, 0, TAU); g.stroke();
+      }
+    }
+  }
   staticCv._M = M; staticCv._uMin = uMin; staticCv._vMin = vMin;
 }
 
@@ -1196,6 +1173,33 @@ function drawCones(g){
     }
   }
 }
+// 钟楼挂钟：摆动 + 偶尔钟声
+function drawBells(g){
+  const bells = (S.level.decor||[]).filter(d=>d.type==='bell');
+  for (const b of bells){
+    const P = proj(b.x, ROOM.y + 34);
+    const sw = Math.sin(S.t*1.4 + b.x) * (S.bellSwing||1) * 0.16;
+    const sc = b.big ? 1.7 : 1;
+    g.save();
+    g.translate(P.x, P.y); g.rotate(sw); g.scale(sc, sc);
+    g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-26, -30); g.lineTo(26, -30); g.stroke();
+    g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(0, -30); g.lineTo(0, 12); g.stroke();
+    g.fillStyle = '#0c0c0c';
+    g.beginPath();
+    g.moveTo(-13, 32);
+    g.quadraticCurveTo(-15, 6, 0, 2);
+    g.quadraticCurveTo(15, 6, 13, 32);
+    g.closePath(); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke();
+    g.beginPath(); g.moveTo(-15, 32); g.lineTo(15, 32); g.stroke();
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(Math.sin(S.t*1.4 + b.x)*3, 36, 2.2, 0, TAU); g.fill();
+    g.restore();
+  }
+}
+
 function drawSight(g, gd){
   const a = proj(gd.x, gd.y), b = proj(S.player.x, S.player.y);
   g.strokeStyle = `rgba(255,255,255,${0.25 + 0.5*gd.susp})`;
@@ -1427,16 +1431,11 @@ function drawGuard(g, gd){
   g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.3, 7, 0, 0, TAU); g.fill();
   const chase = gd.state==='chase';
   const pulse = chase ? 1+Math.sin(S.t*14)*0.05 : 1;
-  const wob = gd.dulled > 0 ? Math.sin(S.t*7)*0.1 : 0;
-  g.save(); g.translate(P.x, P.y); g.rotate(wob);
+  g.save(); g.translate(P.x, P.y);
   const flip = Math.cos(gd.ang) < 0 ? -1 : 1;
   g.scale(pulse*flip, pulse);
   g.drawImage(im, -wid/2, -hgt+8, wid, hgt);
   g.restore();
-  if (gd.dulled > 0){
-    g.fillStyle = 'rgba(255,255,255,0.85)'; g.font='700 10px Georgia'; g.textAlign='center';
-    g.fillText('~晕~', P.x, P.y-hgt-16);
-  }
   if (gd.pauseT > 0 && gd.trait==='charge'){
     const r = (0.55-gd.pauseT)/0.55;
     g.strokeStyle = `rgba(255,255,255,${0.7*(1-r)})`; g.lineWidth = 2.5;
@@ -1576,9 +1575,7 @@ function drawHUD(g){
   g.font = '700 14px Georgia';
   g.fillText(S.level ? S.level.name : '', 330, 35);
   g.font = '700 11px "Courier New"';
-  let itxt = '烟'+S.items.smoke+'[Q] 硬'+S.items.coin+'[E] 药'+S.items.potion+'[C]';
-  if (S.keyItem) itxt += ' 钥×'+(S.keysN||0);
-  g.fillText(itxt, 332, 49);
+  if (S.keyItem) g.fillText('万能钥匙 ×'+(S.keysN||0), 332, 49);
   for (let i=0;i<3;i++){
     const x = 520+i*32;
     g.fillStyle = i < S.lives ? '#fff' : 'rgba(255,255,255,0.15)';
@@ -1639,7 +1636,7 @@ function renderTitle(g){
   g.fillText('· 唱机可以声东击西；台灯照亮周围', W*0.465, H*0.62);
   g.fillText('· Q 烟雾弹遮断视线 · E 抛硬币引开守卫', W*0.465, H*0.655);
   g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.69);
-  g.fillText('· D 每日挑战 · Tab 成就面板 · 触屏：左半屏拖动移动', W*0.465, H*0.725);
+  g.fillText('· Tab 成就面板 · 触屏：左半屏拖动移动', W*0.465, H*0.725);
   if (S.blink%1 < 0.65){
     g.fillStyle='#fff'; g.font='900 22px Georgia'; g.textAlign='center';
     g.fillText('— 按 空格 开始潜行 —', W/2, H*0.86);
@@ -1778,48 +1775,9 @@ function renderPlay(g){
   }
   fogG.globalCompositeOperation = 'source-over';
   ctx.drawImage(fogCv, 0, 0);
-  // 烟雾（盖在迷雾上，遮断视线）
-  for (const s of S.smokes){
-    const P = proj(s.x, s.y);
-    const gr = s.life/s.max;
-    const r = 150*ISO.kx*(0.7 + 0.5*(1-gr)) + 24;
-    const alpha = Math.min(1, gr*3) * 0.85;
-    const rg2 = ctx.createRadialGradient(P.x, P.y-20, 6, P.x, P.y-20, r);
-    rg2.addColorStop(0, `rgba(225,225,225,${0.9*alpha})`);
-    rg2.addColorStop(1, 'rgba(225,225,225,0)');
-    ctx.fillStyle = rg2;
-    ctx.beginPath(); ctx.ellipse(P.x, P.y-16, r, r*0.72, 0, 0, TAU); ctx.fill();
-  }
-  // 硬币飞行与落点涟漪（药水同轨迹）
-  for (const fx of S.coinFx){
-    const tt = Math.min(1, fx.t);
-    const x = fx.x0 + (fx.x1-fx.x0)*tt, y = fx.y0 + (fx.y1-fx.y0)*tt - Math.sin(tt*Math.PI)*50;
-    const P = proj(x, y);
-    ctx.fillStyle = fx.kind==='potion' ? 'rgba(200,200,200,0.95)' : '#fff';
-    ctx.beginPath(); ctx.arc(P.x, P.y-18, 3.5, 0, TAU); ctx.fill();
-    if (fx.landed){
-      const Pl = proj(fx.x1, fx.y1);
-      const rp = (fx.t-1)/0.4;
-      ctx.strokeStyle = `rgba(255,255,255,${0.6*(1-rp)})`; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(Pl.x, Pl.y, 14+rp*70, (14+rp*70)*0.42, 0, 0, TAU); ctx.stroke();
-    }
-  }
-  // 钝化药水池
-  for (const pd of S.puddles){
-    const P = proj(pd.x, pd.y);
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.beginPath(); ctx.ellipse(P.x, P.y, 120*ISO.kx, 120*ISO.ky*1.1, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([3,5]);
-    ctx.beginPath(); ctx.ellipse(P.x, P.y, 120*ISO.kx, 120*ISO.ky*1.1, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-    for (let b=0;b<3;b++){
-      const bt = (S.t*0.7 + b*0.33)%1;
-      ctx.fillStyle = `rgba(255,255,255,${0.5*(1-bt)})`;
-      ctx.beginPath();
-      ctx.arc(P.x + Math.sin(b*2.4+S.t)*22, P.y - bt*26, 2.2, 0, TAU); ctx.fill();
-    }
-  }
   // 光：守卫灯光锥 + 远处守卫剪影 + 台灯光晕 + 出口 + 宝物闪光（穿透黑暗可见）
   drawCones(ctx);
+  drawBells(ctx);
   for (const gd of S.guards){
     const P = proj(gd.x, gd.y);
     const d = Math.hypot(P.x-pp.x, P.y-pp.y);
@@ -1909,10 +1867,6 @@ function renderPlay(g){
 }
 function renderClear(g){
   panel(g, '得手！', S.level.name + ' · 战利品 ¥'+S.score);
-  g.fillStyle='#fff'; g.font='900 30px Georgia'; g.textAlign='center';
-  g.fillText('本关评价 ' + (S.rating||'B'), W/2, H*0.335);
-  g.font='700 15px Georgia'; g.fillStyle='rgba(255,255,255,0.75)';
-  g.fillText('用时 '+Math.round(S.lvTime)+'s · 被发现 '+S.busted+' 次 · 该关最佳 '+(S.bestRate||S.rating||'B'), W/2, H*0.385);
   centeredImg(g, 'hero_spy', Math.min(300, H*0.42), W/2, H*0.88, true);
   g.fillStyle='#fff'; g.font='700 22px Georgia'; g.textAlign='center';
   if (S.blink%1 < 0.65) g.fillText('按 空格 潜入下一间密室 →', W/2, H*0.95);
@@ -1937,12 +1891,6 @@ function renderWin(g){
   const im = whiteOf('hero_moon'); if (im.width){
     const r = Math.min(W,H)*0.26;
     g.drawImage(im, W/2-r*1.2, H*0.33, r*2.4, r*1.96);
-  }
-  if (S.daily){
-    const d = new Date();
-    const dk = 'burglar_daily_' + (d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate());
-    g.fillStyle='#fff'; g.font='700 18px Georgia'; g.textAlign='center';
-    g.fillText('今日挑战最佳 ¥'+Math.max(+(localStorage.getItem(dk)||0), S.score), W/2, H*0.80);
   }
   if (S.blink%1 < 0.65){ g.fillStyle='#fff'; g.font='900 24px Georgia'; g.textAlign='center';
     g.fillText('按 空格 再偷一次', W/2, H*0.93); }
@@ -1980,19 +1928,6 @@ function tick(now){
       for (const gd of S.guards) guardUpdate(gd, dt);
       for (const n of S.npcs) npcUpdate(n, dt);
       for (const gd of S.gadgets) gd.cd = Math.max(0, gd.cd - dt);
-    for (const s of S.smokes) s.life -= dt;
-    S.smokes = S.smokes.filter(s=>s.life > 0);
-    for (const pd of S.puddles) pd.life -= dt;
-    S.puddles = S.puddles.filter(p=>p.life > 0);
-    for (const fx of S.coinFx){
-      fx.t += dt*2.2;
-      if (fx.t >= 1 && !fx.landed){
-        fx.landed = true;
-        if (fx.kind === 'potion'){ S.puddles.push({x:fx.x1, y:fx.y1, life:8}); sfx.smoke(); }
-        else { guardAlert(fx.x1, fx.y1); sfx.ask(); }
-      }
-    }
-      S.coinFx = S.coinFx.filter(f=>f.t < 1.4);
       // 追逐低音 BGM：随危险度渐强的低音脉冲
       if (S.danger > 0.3){
         S.musicT -= dt;
@@ -2010,7 +1945,13 @@ function tick(now){
         const d = dist(gd.x,gd.y,S.player.x,S.player.y);
         danger = Math.max(danger, clamp(1 - d/380, 0, 1)*0.75*(gd.state==='chase'?1.3:1));
       }
+      for (const gd of S.guards){ if (gd.susp > 0.3) S.wasSuspected = true; }
       S.danger += (danger - S.danger) * Math.min(1, dt*4);
+      // 钟楼钟声
+      if (S.level.decor && S.level.decor.some(d=>d.type==='bell')){
+        S.bellT -= dt;
+        if (S.bellT <= 0){ S.bellT = 7 + Math.random()*4; sfx.bell(); S.bellSwing = 3; }
+      }
       S.beatT -= dt;
       if (S.danger > 0.2 && S.beatT <= 0){
         sfx.heart(0.18 + 0.4*clamp(S.danger,0,1));
