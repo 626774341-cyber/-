@@ -243,12 +243,13 @@ const LEVELS = [
   npcs:[],
   exit:{x:432,y:584,w:96}, start:{x:480,y:120} },
 
-{ name:'终夜 · 宝库', dark:false,
+{ name:'第五夜 · 宝库', dark:false,
   tip:'三头龙有三个视野；双翼兽循着足迹找来；石像盯着大门',
   walls:[...outerWalls(), [250,220,440,16], [250,236,16,208], [674,236,16,208], [250,444,200,16], [506,444,168,16], [120,88,16,40], [824,88,16,40]],
   furniture:[[420,300,120,90,'safe']],
   shadows:[[420,92,140,70],[100,400,140,120],[720,400,140,120]],
   glows:[], lamps:[{x:300,y:180},{x:620,y:380}], gadgets:[{x:600,y:130}],
+  keyAt:{x:560,y:120},
   treasures:[{type:'crown',x:480,y:415},{type:'gem',x:305,y:330},{type:'gem',x:640,y:330},{type:'coin',x:90,y:150},{type:'coin',x:872,y:150},{type:'vase',x:360,y:540},{type:'coin',x:90,y:555}],
   guards:[
     {img:'mob_dragon', trait:'triple', path:[[480,200],[860,200],[860,540],[480,540],[100,540],[100,200]], speed:52, R:200, fov:62},
@@ -256,16 +257,33 @@ const LEVELS = [
     {img:'mob_hound2', trait:'sniff', path:[[760,170],[760,350],[870,350],[870,170]], speed:112, R:150, fov:85},
     {img:'mob_face', fixed:{x:478, y:520}, base:Math.PI/2, range:1.0, speed:0, R:185, fov:55}],
   npcs:[],
-  exit:{x:432,y:584,w:96}, start:{x:480,y:120} }
+  exit:{x:432,y:584,w:96}, start:{x:480,y:120} },
+
+{ name:'终夜 · 钟楼', dark:true,
+  tip:'钟楼巨鳄永不遗忘 —— 被盯上就甩不掉。它能听见你的每一次呼吸',
+  walls:[...outerWalls(), [380,220,180,16], [380,236,16,148], [704,236,16,148], [380,384,70,16], [510,384,50,16], [200,250,16,130], [760,250,16,130]],
+  furniture:[[460,300,80,60,'safe'],[100,120,60,50,'crate'],[830,520,60,50,'crate']],
+  shadows:[[120,380,160,120],[760,400,140,120]],
+  glows:[[480,300,80]], lamps:[{x:250,y:300},{x:700,y:450}], gadgets:[{x:150,y:130}],
+  keyAt:{x:865,y:120},
+  treasures:[{type:'crown',x:480,y:300},{type:'gem',x:450,y:330},{type:'coin',x:860,y:300},{type:'gem',x:120,y:200},{type:'vase',x:120,y:545},{type:'coin',x:865,y:545}],
+  guards:[
+    {img:'mob_croc', trait:'boss', path:[[480,160],[820,160],[820,520],[480,520],[180,520],[180,160]], speed:55, R:300, fov:70},
+    {img:'mob_hound1', trait:'sniff', path:[[150,500],[150,220],[320,220]], speed:100, R:140, fov:85},
+    {img:'mob_hound2', trait:'sniff', path:[[850,500],[850,220],[740,220]], speed:100, R:140, fov:85}],
+  npcs:[],
+  exit:{x:432,y:584,w:96}, start:{x:480,y:550} }
 ];
 
 /* ---------------- 状态 ---------------- */
 const S = { mode:'loading', lvIndex:0, level:null, guards:[], npcs:[], treasures:[], gadgets:[], lamps:[], player:null,
   score:0, lvStartScore:0, lives:3, t:0, best:+(localStorage.getItem('burglar_best')||0),
   exitOpen:false, msg:'', msgT:0, flash:0, paused:false, blink:0,
-  shake:0, danger:0, beatT:0, spaceEdge:false, qEdge:false, eEdge:false, trail:[], trailT:0,
-  cam:{u:0, v:0, init:false}, items:{smoke:1, coin:3}, smokes:[], coinFx:[],
-  lvTime:0, busted:0, musicT:0, musicStep:0 };
+  shake:0, danger:0, beatT:0, spaceEdge:false, qEdge:false, eEdge:false, cEdge:false, trail:[], trailT:0,
+  cam:{u:0, v:0, init:false}, items:{smoke:1, coin:3, potion:1}, smokes:[], coinFx:[], puddles:[], potions:[], keyItem:null,
+  lvTime:0, busted:0, musicT:0, musicStep:0, daily:false, showAch:false,
+  best:0 };
+S.best = +(localStorage.getItem('burglar_best')||0);
 const ALLY = [];
 window.__G = S; window.__BUILD = buildLevel;
 
@@ -312,8 +330,22 @@ function buildLevel(i){
   S.lvStartScore = S.score;
   S.exitOpen = false; S.msg=''; S.msgT=0; S.flash=0; S.shake=0; S.danger=0; S.beatT=0;
   S.trail.length = 0; S.trailT = 0; S.cam.init = false;
-  S.items = {smoke:1, coin:3}; S.smokes.length = 0; S.coinFx.length = 0;
+  S.items = {smoke:1, coin:3, potion:1}; S.smokes.length = 0; S.coinFx.length = 0; S.puddles.length = 0; S.potions.length = 0;
   S.lvTime = 0; S.busted = 0;
+  // 万能钥匙
+  S.keyItem = L.keyAt ? {x:sp(L.keyAt.x), y:sp(L.keyAt.y), got:false} : null;
+  // 每日挑战：按日期种子扰动守卫
+  if (S.daily){
+    const d = new Date();
+    const seed = d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate();
+    const rnd = mulberry32(seed + i*7);
+    for (const g of S.guards){
+      if (g.path.length){ g.wp = (rnd()*g.path.length)|0; }
+      g.speed = Math.round(g.speed*(0.9 + rnd()*0.25));
+      g.scanT = rnd()*10;
+    }
+    if (S.lamps.length && rnd() < 0.5) S.lamps[(rnd()*S.lamps.length)|0].on = true;
+  }
   // 开场运镜路径：大门 → 首个守卫 → 出生点
   const ec = {x: sp(L.exit.x)+sp(L.exit.w)/2, y: sp(L.exit.y)+40};
   const g0 = L.guards[0];
@@ -373,6 +405,7 @@ function inLight(x,y){
 /* ---------------- 视野参数与感知 ---------------- */
 function visParams(g){
   let R = g.R, flash = false;
+  if (g.dulled > 0) R = R*0.35;                // 钝化：视野大幅缩水
   if (g.trait==='lance'){
     const c = g.scanT % 3.6;
     if (c > 2.9) R = g.R*2.6;                    // 吐信突刺：更长更频繁
@@ -441,8 +474,9 @@ function ghostRoam(g, dt){
   }
   const ta = Math.atan2(g.ry-g.y, g.rx-g.x);
   g.ang = lerpAng(g.ang, ta, Math.min(1, dt*3));
-  g.x += Math.cos(g.ang)*g.speed*1.0*dt;
-  g.y += Math.sin(g.ang)*g.speed*1.0*dt;
+  const dull = g.dulled > 0 ? 0.6 : 1;
+  g.x += Math.cos(g.ang)*g.speed*1.0*dull*dt;
+  g.y += Math.sin(g.ang)*g.speed*1.0*dull*dt;
 }
 function guardUpdate(g, dt){
   const p = S.player;
@@ -451,6 +485,12 @@ function guardUpdate(g, dt){
   g.bubbleShow = Math.max(0, (g.bubbleShow||0) - dt);
   g.rushT = Math.max(0, (g.rushT||0) - dt);
   g.msgCd = Math.max(0, (g.msgCd||0) - dt);
+  // 钝化药水：踩进药水池的守卫又瞎又慢
+  for (const pd of S.puddles){
+    if (dist(g.x,g.y,pd.x,pd.y) < 130) g.dulled = Math.max(g.dulled||0, 1.0);
+  }
+  g.dulled = Math.max(0, (g.dulled||0) - dt);
+  const dull = g.dulled > 0 ? 0.6 : 1;
   const turn = g.trait==='slow' ? 1.6 : 6;
   if (g.fixed){
     g.ang = g.base + Math.sin(g.scanT*0.7)*g.range;
@@ -489,7 +529,8 @@ function guardUpdate(g, dt){
         }
       }
     } else {
-      g.susp = Math.max(0, g.susp - dt*(g.state==='chase'?0.12:(g.trait==='slow'?0.5:0.3)));
+      const dec = g.state==='chase' ? (g.trait==='boss' ? 0.03 : 0.12) : (g.trait==='slow' ? 0.5 : 0.3);
+      g.susp = Math.max(0, g.susp - dt*dec);
       if (g.state==='chase' && g.susp <= 0.05){ g.state='investigate'; g.waitT=4; }
     }
     if (g.state==='patrol'){
@@ -512,7 +553,7 @@ function guardUpdate(g, dt){
           g.dart.t -= dt;
           const ta = Math.atan2(g.dart.y-g.y, g.dart.x-g.x);
           g.ang = lerpAng(g.ang, ta, Math.min(1, dt*10));
-          const [gx,gy] = collide(g.x + Math.cos(g.ang)*g.speed*2.6*dt, g.y + Math.sin(g.ang)*g.speed*2.6*dt, 16);
+          const [gx,gy] = collide(g.x + Math.cos(g.ang)*g.speed*2.6*dull*dt, g.y + Math.sin(g.ang)*g.speed*2.6*dull*dt, 16);
           g.x = gx; g.y = gy;
           if (g.dart.t <= 0 || dist(g.x,g.y,g.dart.x,g.dart.y) < 20) g.dart = null;
           if (dist(g.x,g.y,p.x,p.y) < 26) caught();
@@ -532,6 +573,14 @@ function guardUpdate(g, dt){
         }
       }
       if (g.pauseT > 0){ g.pauseT -= dt; g.ang += dt*4.5; return; }
+      if (g.trait==='boss'){
+        g.roarCd = (g.roarCd===undefined ? 7 : g.roarCd) - dt;
+        if (g.roarCd <= 0){
+          g.roarCd = 9; g.pauseT = 0.9; S.shake = 14; sfx.growl();
+          traitShout(g, '钟楼巨鳄在咆哮！整个钟楼都在震颤…');
+          if (dist(g.x,g.y,p.x,p.y) < g.R*1.3) guardAlert(p.x, p.y);
+        }
+      }
       if (g.trait==='scan' && g.pauseT <= 0){
         const wp = g.path[g.wp];
         if (wp && dist(g.x,g.y,wp[0],wp[1]) < 8 && !g.pausedHere){
@@ -548,7 +597,7 @@ function guardUpdate(g, dt){
         const ox = g.x, oy = g.y;
         const ta = Math.atan2(ty-g.y, tx-g.x);
         g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
-        g.x += Math.cos(g.ang)*g.speed*dt; g.y += Math.sin(g.ang)*g.speed*dt;
+        g.x += Math.cos(g.ang)*g.speed*dull*dt; g.y += Math.sin(g.ang)*g.speed*dull*dt;
         const [gx,gy] = collide(g.x, g.y, 16);
         if (dist(ox,oy,gx,gy) < g.speed*dt*0.3){ g.stuckT = (g.stuckT||0)+dt;
           if (g.stuckT > 1.2){ g.wp = (g.wp+1)%g.path.length; g.stuckT = 0; } }
@@ -561,7 +610,7 @@ function guardUpdate(g, dt){
         if (d > 10){
           const ta = Math.atan2(g.lastSeen.y-g.y, g.lastSeen.x-g.x);
           g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
-          const rs = g.speed * (g.rushT > 0 ? 2.0 : 1.35);
+          const rs = g.speed * (g.rushT > 0 ? 2.0 : 1.35) * dull;
           g.x += Math.cos(g.ang)*rs*dt; g.y += Math.sin(g.ang)*rs*dt;
         } else {
           // 到达目击点：在附近生成 2 个搜索点逐个排查
@@ -595,7 +644,7 @@ function guardUpdate(g, dt){
       const tx = g.lastSeen ? g.lastSeen.x : p.x, ty = g.lastSeen ? g.lastSeen.y : p.y;
       const ta = Math.atan2(ty-g.y, tx-g.x);
       g.ang = lerpAng(g.ang, ta, Math.min(1, dt*8));
-      const cs = g.speed * (g.trait==='charge' ? 2.9 : 1.6);
+      const cs = g.speed * (g.trait==='charge' ? 2.9 : 1.6) * dull;
       g.x += Math.cos(g.ang)*cs*dt; g.y += Math.sin(g.ang)*cs*dt;
     }
     const [nx,ny] = collide(g.x, g.y, 16);
@@ -657,7 +706,7 @@ function playerUpdate(dt){
   S.trailT -= dt;
   if (S.trailT <= 0){ S.trail.push({x:p.x, y:p.y, t:S.t}); if (S.trail.length > 60) S.trail.shift(); S.trailT = 0.25; }
 
-  // ===== 交互：偷窃 / 唱机 / 台灯 =====
+  // ===== 道具：烟雾弹 [Q] / 抛硬币 [E] / 钝化药水 [C] =====
   const holding = !!keys[' '];
   let best = null, bestD = 1e9;
   for (const t of S.treasures){
@@ -731,7 +780,22 @@ function playerUpdate(dt){
       } else setMsg('台灯关了', 1);
     }
   }
-  S.spaceEdge = false;
+  // ===== 钝化药水 [C]：掷出后让踩中的守卫又瞎又慢 =====
+  if (S.cEdge){
+    S.cEdge = false;
+    if (S.items.potion > 0){
+      S.items.potion--;
+      const tx = clamp(p.x + Math.cos(p.ang)*260, ROOM.x+30, ROOM.x+ROOM.w-30);
+      const ty = clamp(p.y + Math.sin(p.ang)*260, ROOM.y+30, ROOM.y+ROOM.h-30);
+      S.coinFx.push({x0:p.x, y0:p.y, x1:tx, y1:ty, t:0, landed:false, kind:'potion'});
+      sfx.smoke(); setMsg('钝化药水 —— 怪物踩到会又瞎又慢', 1.5);
+    }
+  }
+  // 万能钥匙拾取
+  if (S.keyItem && !S.keyItem.got && dist(p.x,p.y,S.keyItem.x,S.keyItem.y) < 46){
+    S.keyItem.got = true; S.keysN = (S.keysN||0)+1; sfx.pick();
+    setMsg('万能钥匙 —— 能打开一扇锁着的门', 2.2);
+  }
   // 光照暴露：站在光圈/亮着的台灯下会被直接暴露，守卫直奔而来
   const exposed = inLight(p.x, p.y);
   if (exposed){
@@ -773,10 +837,17 @@ function playerUpdate(dt){
   // 出口
   const e = S.level.exit;
   const left = S.treasures.filter(t=>!t.got).length;
-  if (p.x > e.x - 30 && p.x < e.x + e.w + 30 && p.y > ROOM.y + ROOM.h - 46){
-    if (S.exitOpen){ if (S.mode==='play') levelClear(); }
-    else if (S.msgT <= 0){ setMsg('大门锁着 —— 还差 ' + left + ' 件宝物', 1.6); }
+  const nearExit = p.x > e.x - 30 && p.x < e.x + e.w + 30 && p.y > ROOM.y + ROOM.h - 46;
+  if (S.exitOpen && nearExit){ if (S.mode==='play') levelClear(); }
+  else if (nearExit){
+    if (S.keysN > 0){
+      if (S.spaceEdge){
+        S.keysN--; S.exitOpen = true; sfx.door();
+        setMsg('万能钥匙转动 —— 大门开了！', 2.5);
+      } else if (S.msgT <= 0) setMsg('按空格 · 用万能钥匙开门', 1.6);
+    } else if (S.msgT <= 0){ setMsg('大门锁着 —— 还差 ' + left + ' 件宝物', 1.6); }
   }
+  S.spaceEdge = false;
 }
 const T_VAL = {coin:30, gem:50, vase:40, crown:100, pic:80};
 const T_NAME = {coin:'一袋金币', gem:'黑钻', vase:'古董花瓶', crown:'王冠', pic:'名画'};
@@ -787,38 +858,79 @@ function caught(){
   S.shake = 12; S.busted++;
   if (S.lives < 0){ S.mode = 'gameover'; }
 }
-const PARS = [75, 90, 105, 120, 140];
+const PARS = [75, 90, 105, 120, 140, 150];
+function mulberry32(a){ return function(){ a|=0; a = a+0x6D2B79F5|0; let t = Math.imul(a^a>>>15, 1|a); t = t + Math.imul(t^t>>>7, 61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+// 成就
+const ACH = [
+  {id:'first',  name:'首夜告捷',       desc:'通过第一夜'},
+  {id:'shadow', name:'无影之贼',       desc:'任意关卡拿到 S 评价'},
+  {id:'ghost',  name:'来无影去无踪',   desc:'整关从未被抓'},
+  {id:'rich',   name:'满载而归',       desc:'单关战利品 ≥ ¥400'},
+  {id:'boss',   name:'屠鳄英雄',       desc:'通过钟楼'},
+  {id:'daily',  name:'每日一偷',       desc:'完成一次每日挑战'},
+  {id:'master', name:'神偷',           desc:'六关全部拿到 S 评价'}
+];
+function achGot(){ try{ return JSON.parse(localStorage.getItem('burglar_ach')||'{}'); }catch(e){ return {}; } }
+function unlock(id){
+  try{
+    const got = achGot();
+    if (!got[id]){
+      got[id] = true; localStorage.setItem('burglar_ach', JSON.stringify(got));
+      const a = ACH.find(a=>a.id===id);
+      if (a){ setMsg('★ 成就解锁 · ' + a.name, 3); sfx.win(); }
+    }
+  }catch(e){}
+}
 function levelClear(){
   S.mode = 'clear'; sfx.win();
   S.rating = (S.busted === 0 && S.lvTime <= PARS[S.lvIndex]) ? 'S'
            : (S.busted <= 1 && S.lvTime <= PARS[S.lvIndex]*1.5) ? 'A' : 'B';
+  let rates = {};
+  try{ rates = JSON.parse(localStorage.getItem('burglar_rates')||'{}'); }catch(e){}
+  const order = {S:3, A:2, B:1};
+  if (!rates[S.lvIndex] || order[S.rating] > order[rates[S.lvIndex]]){
+    rates[S.lvIndex] = S.rating;
+    localStorage.setItem('burglar_rates', JSON.stringify(rates));
+  }
+  S.bestRate = rates[S.lvIndex];
+  if (S.lvIndex===0) unlock('first');
+  if (S.rating==='S') unlock('shadow');
+  if (S.busted===0) unlock('ghost');
+  if (S.score >= 400) unlock('rich');
+  if (S.lvIndex===LEVELS.length-1) unlock('boss');
+  if (S.daily) unlock('daily');
   try{
-    const rates = JSON.parse(localStorage.getItem('burglar_rates')||'{}');
-    const order = {S:3, A:2, B:1};
-    if (!rates[S.lvIndex] || order[S.rating] > order[rates[S.lvIndex]]){
-      rates[S.lvIndex] = S.rating;
-      localStorage.setItem('burglar_rates', JSON.stringify(rates));
-    }
-    S.bestRate = rates[S.lvIndex];
+    const r2 = JSON.parse(localStorage.getItem('burglar_rates')||'{}');
+    if (Object.keys(r2).length >= LEVELS.length && Object.values(r2).every(v=>v==='S')) unlock('master');
   }catch(e){}
   if (S.lvIndex >= LEVELS.length-1){
     S.mode = 'win';
     if (S.score > S.best){ S.best = S.score; localStorage.setItem('burglar_best', S.best); }
+    if (S.daily){
+      const d = new Date();
+      const dk = 'burglar_daily_' + (d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate());
+      const prev = +(localStorage.getItem(dk)||0);
+      if (S.score > prev) localStorage.setItem(dk, S.score);
+      S.dailyBest = Math.max(prev, S.score);
+    }
   }
 }
 function onKey(k){
   if (S.mode==='loading') return;
   if (k==='m'){ muted = !muted; setMsg(muted?'已静音':'声音开启',1); }
+  if (k==='a'){ S.showAch = !S.showAch; }
   if (k==='p' && (S.mode==='play')){ S.paused = !S.paused; sfx.ui(); }
   if (S.mode==='title'){
-    if (k===' '){ S.score=0; S.lives=3; buildLevel(0); sfx.ui(); }
-    if (k>='1' && k<='5'){ S.score=0; S.lives=3; buildLevel(parseInt(k,10)-1); sfx.ui(); }
+    if (k===' '){ S.score=0; S.lives=3; S.daily=false; buildLevel(0); sfx.ui(); }
+    if (k==='d'){ S.score=0; S.lives=3; S.daily=true; buildLevel((new Date().getDate())%LEVELS.length); sfx.ui(); }
+    if (k>='1' && k<='6'){ S.score=0; S.lives=3; S.daily=false; buildLevel(parseInt(k,10)-1); sfx.ui(); }
   } else if (S.mode==='play'){
     if (S.flyover > 0){ S.flyover = 0.01; S.cam.init = false; return; }   // 任意键跳过开场运镜
     if (k==='r'){ S.score = S.lvStartScore; buildLevel(S.lvIndex); sfx.ui(); }
     if (k===' ') S.spaceEdge = true;
     if (k==='q') S.qEdge = true;
     if (k==='e') S.eEdge = true;
+    if (k==='c') S.cEdge = true;
     if (k==='g'){ S.treasures.forEach(t=>t.got=true); S.exitOpen=true; sfx.door(); setMsg('出口打开了',1.5); }
   } else if (S.mode==='clear'){
     if (k===' '){ buildLevel(S.lvIndex+1); sfx.ui(); }
@@ -1126,6 +1238,26 @@ function drawLamp(g, lp){
   }
 }
 
+function drawKeyItem(g){
+  const k = S.keyItem; if (!k || k.got) return;
+  const P = proj(k.x, k.y);
+  const bob = Math.sin(S.t*2.2)*2.5;
+  g.fillStyle = 'rgba(255,255,255,0.10)';
+  g.beginPath(); g.ellipse(P.x, P.y, 16, 7, 0, 0, TAU); g.fill();
+  g.save(); g.translate(P.x, P.y - 6 + bob);
+  g.rotate(Math.sin(S.t*1.8)*0.25);
+  g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.fillStyle = '#050505';
+  g.beginPath(); g.arc(-7, 0, 6, 0, TAU); g.fill(); g.stroke();
+  g.beginPath(); g.moveTo(-1, 0); g.lineTo(14, 0); g.stroke();
+  g.beginPath(); g.moveTo(9, 0); g.lineTo(9, 5); g.moveTo(13, 0); g.lineTo(13, 6); g.stroke();
+  g.restore();
+  const near = dist(k.x,k.y,S.player.x,S.player.y) < 52;
+  if (near){
+    g.fillStyle = '#fff'; g.font = '700 12px Georgia'; g.textAlign = 'center';
+    g.fillText('拾取万能钥匙', P.x, P.y - 36);
+  }
+}
+
 function drawExitDoor(g){
   const e = S.level.exit;
   const cx = e.x + e.w/2, cy = ROOM.y + ROOM.h - 8;
@@ -1190,7 +1322,7 @@ function drawCastShadow(g, cx, cy){
 
 function drawGuard(g, gd){
   const im = rimOf(gd.img);
-  const hgt = gd.img==='mob_face' ? 74 : 62;
+  const hgt = gd.img==='mob_face' ? 74 : (gd.trait==='boss' ? 104 : 62);
   const wid = (im.width-10)/im.height*hgt;
   const P = proj(gd.x, gd.y);
   drawCastShadow(g, gd.x, gd.y);
@@ -1198,11 +1330,16 @@ function drawGuard(g, gd){
   g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.3, 7, 0, 0, TAU); g.fill();
   const chase = gd.state==='chase';
   const pulse = chase ? 1+Math.sin(S.t*14)*0.05 : 1;
-  g.save(); g.translate(P.x, P.y);
+  const wob = gd.dulled > 0 ? Math.sin(S.t*7)*0.1 : 0;
+  g.save(); g.translate(P.x, P.y); g.rotate(wob);
   const flip = Math.cos(gd.ang) < 0 ? -1 : 1;
   g.scale(pulse*flip, pulse);
   g.drawImage(im, -wid/2, -hgt+8, wid, hgt);
   g.restore();
+  if (gd.dulled > 0){
+    g.fillStyle = 'rgba(255,255,255,0.85)'; g.font='700 10px Georgia'; g.textAlign='center';
+    g.fillText('~晕~', P.x, P.y-hgt-16);
+  }
   if (gd.pauseT > 0 && gd.trait==='charge'){
     const r = (0.55-gd.pauseT)/0.55;
     g.strokeStyle = `rgba(255,255,255,${0.7*(1-r)})`; g.lineWidth = 2.5;
@@ -1338,7 +1475,9 @@ function drawHUD(g){
   g.font = '700 14px Georgia';
   g.fillText(S.level ? S.level.name : '', 330, 35);
   g.font = '700 11px "Courier New"';
-  g.fillText('烟雾×'+S.items.smoke+'[Q] · 硬币×'+S.items.coin+'[E]', 332, 49);
+  let itxt = '烟'+S.items.smoke+'[Q] 硬'+S.items.coin+'[E] 药'+S.items.potion+'[C]';
+  if (S.keyItem) itxt += ' 钥×'+(S.keysN||0);
+  g.fillText(itxt, 332, 49);
   for (let i=0;i<3;i++){
     const x = 520+i*32;
     g.fillStyle = i < S.lives ? '#fff' : 'rgba(255,255,255,0.15)';
@@ -1390,7 +1529,7 @@ function renderTitle(g){
   g.font='700 20px "Courier New"';
   g.fillText('T H E   B U R G L A R', W*0.465, H*0.315);
   g.font='900 24px Georgia,"Songti SC",serif';
-  g.fillText('今夜，五间密室，满屋财宝。', W*0.465, H*0.42);
+  g.fillText('今夜，六间密室，满屋财宝。', W*0.465, H*0.42);
   g.fillText('别被看见。', W*0.465, H*0.465);
   g.font='700 16px Georgia';
   g.fillText('你扮演 —— 礼帽绅士', W*0.465, H*0.535);
@@ -1399,7 +1538,7 @@ function renderTitle(g){
   g.fillText('· 唱机可以声东击西；台灯照亮周围', W*0.465, H*0.62);
   g.fillText('· Q 烟雾弹遮断视线 · E 抛硬币引开守卫', W*0.465, H*0.655);
   g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.69);
-  g.fillText('· 触屏可玩：左半屏拖动移动，右下按钮潜行/行动', W*0.465, H*0.725);
+  g.fillText('· D 每日挑战 · A 成就面板 · 触屏：左半屏拖动移动', W*0.465, H*0.725);
   if (S.blink%1 < 0.65){
     g.fillStyle='#fff'; g.font='900 22px Georgia'; g.textAlign='center';
     g.fillText('— 按 空格 开始潜行 —', W/2, H*0.86);
@@ -1452,6 +1591,7 @@ function renderPlay(g){
   { const e = S.level.exit; items.push({d:(e.x+e.w/2)+(ROOM.y+ROOM.h-8), k:'exit'}); }
   for (const t of S.treasures) if (!t.got) items.push({d:t.x+t.y, k:'tre', t});
   for (const gd of S.gadgets) items.push({d:gd.x+gd.y, k:'gad', gd});
+  if (S.keyItem && !S.keyItem.got) items.push({d:S.keyItem.x+S.keyItem.y, k:'key'});
   for (const lp of S.lamps) items.push({d:lp.x+lp.y, k:'lamp', lp});
   for (const n of S.npcs) items.push({d:n.x+n.y, k:'npc', n});
   for (const gd of S.guards) items.push({d:gd.x+gd.y, k:'gd', gd});
@@ -1491,6 +1631,7 @@ function renderPlay(g){
     else if (it.k==='exit') drawExitDoor(sceneG);
     else if (it.k==='tre') drawTreasure(sceneG, it.t);
     else if (it.k==='gad') drawGadget(sceneG, it.gd);
+    else if (it.k==='key') drawKeyItem(sceneG);
     else if (it.k==='lamp') drawLamp(sceneG, it.lp);
     else if (it.k==='npc') drawNpc(sceneG, it.n);
     else if (it.k==='gd') drawGuard(sceneG, it.gd);
@@ -1546,18 +1687,32 @@ function renderPlay(g){
     ctx.fillStyle = rg2;
     ctx.beginPath(); ctx.ellipse(P.x, P.y-16, r, r*0.72, 0, 0, TAU); ctx.fill();
   }
-  // 硬币飞行与落点涟漪
+  // 硬币飞行与落点涟漪（药水同轨迹）
   for (const fx of S.coinFx){
     const tt = Math.min(1, fx.t);
     const x = fx.x0 + (fx.x1-fx.x0)*tt, y = fx.y0 + (fx.y1-fx.y0)*tt - Math.sin(tt*Math.PI)*50;
     const P = proj(x, y);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = fx.kind==='potion' ? 'rgba(200,200,200,0.95)' : '#fff';
     ctx.beginPath(); ctx.arc(P.x, P.y-18, 3.5, 0, TAU); ctx.fill();
     if (fx.landed){
       const Pl = proj(fx.x1, fx.y1);
       const rp = (fx.t-1)/0.4;
       ctx.strokeStyle = `rgba(255,255,255,${0.6*(1-rp)})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(Pl.x, Pl.y, 14+rp*70, (14+rp*70)*0.42, 0, 0, TAU); ctx.stroke();
+    }
+  }
+  // 钝化药水池
+  for (const pd of S.puddles){
+    const P = proj(pd.x, pd.y);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.beginPath(); ctx.ellipse(P.x, P.y, 120*ISO.kx, 120*ISO.ky*1.1, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([3,5]);
+    ctx.beginPath(); ctx.ellipse(P.x, P.y, 120*ISO.kx, 120*ISO.ky*1.1, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    for (let b=0;b<3;b++){
+      const bt = (S.t*0.7 + b*0.33)%1;
+      ctx.fillStyle = `rgba(255,255,255,${0.5*(1-bt)})`;
+      ctx.beginPath();
+      ctx.arc(P.x + Math.sin(b*2.4+S.t)*22, P.y - bt*26, 2.2, 0, TAU); ctx.fill();
     }
   }
   // 光：守卫灯光锥 + 远处守卫剪影 + 台灯光晕 + 出口 + 宝物闪光（穿透黑暗可见）
@@ -1675,10 +1830,16 @@ function renderGameOver(g){
   }
 }
 function renderWin(g){
-  panel(g, '完美得手！','五间密室 · 总战利品 ¥'+S.score+'　最高纪录 ¥'+S.best);
+  panel(g, '完美得手！','六间密室 · 总战利品 ¥'+S.score+'　最高纪录 ¥'+S.best);
   const im = whiteOf('hero_moon'); if (im.width){
     const r = Math.min(W,H)*0.26;
     g.drawImage(im, W/2-r*1.2, H*0.33, r*2.4, r*1.96);
+  }
+  if (S.daily){
+    const d = new Date();
+    const dk = 'burglar_daily_' + (d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate());
+    g.fillStyle='#fff'; g.font='700 18px Georgia'; g.textAlign='center';
+    g.fillText('今日挑战最佳 ¥'+Math.max(+(localStorage.getItem(dk)||0), S.score), W/2, H*0.80);
   }
   if (S.blink%1 < 0.65){ g.fillStyle='#fff'; g.font='900 24px Georgia'; g.textAlign='center';
     g.fillText('按 空格 再偷一次', W/2, H*0.93); }
@@ -1716,12 +1877,18 @@ function tick(now){
       for (const gd of S.guards) guardUpdate(gd, dt);
       for (const n of S.npcs) npcUpdate(n, dt);
       for (const gd of S.gadgets) gd.cd = Math.max(0, gd.cd - dt);
-      for (const s of S.smokes) s.life -= dt;
-      S.smokes = S.smokes.filter(s=>s.life > 0);
-      for (const fx of S.coinFx){
-        fx.t += dt*2.2;
-        if (fx.t >= 1 && !fx.landed){ fx.landed = true; guardAlert(fx.x1, fx.y1); sfx.ask(); }
+    for (const s of S.smokes) s.life -= dt;
+    S.smokes = S.smokes.filter(s=>s.life > 0);
+    for (const pd of S.puddles) pd.life -= dt;
+    S.puddles = S.puddles.filter(p=>p.life > 0);
+    for (const fx of S.coinFx){
+      fx.t += dt*2.2;
+      if (fx.t >= 1 && !fx.landed){
+        fx.landed = true;
+        if (fx.kind === 'potion'){ S.puddles.push({x:fx.x1, y:fx.y1, life:8}); sfx.smoke(); }
+        else { guardAlert(fx.x1, fx.y1); sfx.ask(); }
       }
+    }
       S.coinFx = S.coinFx.filter(f=>f.t < 1.4);
       // 追逐低音 BGM：随危险度渐强的低音脉冲
       if (S.danger > 0.3){
@@ -1757,6 +1924,26 @@ function tick(now){
   else if (S.mode==='win') renderWin(ctx);
   if (S.flash > 0 && S.mode==='play'){
     ctx.fillStyle = S.flash%0.2 < 0.1 ? '#fff' : '#000'; ctx.fillRect(0,0,W,H);
+  }
+  // 成就面板（按 A）
+  if (S.showAch && S.mode !== 'loading'){
+    const got = achGot();
+    ctx.fillStyle = 'rgba(0,0,0,0.93)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.font = '900 40px Georgia'; ctx.textAlign = 'center';
+    ctx.fillText('成 就　'+Object.keys(got).length+' / '+ACH.length, W/2, 84);
+    ctx.textAlign = 'left';
+    ACH.forEach((a,i)=>{
+      const y = 152 + i*54;
+      const has = !!got[a.id];
+      ctx.font = '900 20px Georgia';
+      ctx.fillStyle = has ? '#fff' : 'rgba(255,255,255,0.3)';
+      ctx.fillText((has?'★ ':'☆ ') + a.name, W/2-250, y);
+      ctx.font = '700 13px Georgia';
+      ctx.fillStyle = has ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)';
+      ctx.fillText(a.desc + (has?'　— 已解锁':''), W/2-205, y);
+    });
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '700 16px Georgia';
+    if (S.blink%1 < 0.65) ctx.fillText('按 A 返回', W/2, H-44);
   }
   flushRelease();
 }
