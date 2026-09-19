@@ -37,8 +37,8 @@ const FILES = {
   mob_hound1:'mob_hound1.png', mob_hound2:'mob_hound2.png',
   mob_skeleton:'mob_skeleton_w.png', mob_serpent:'mob_serpent_w.png', mob_croc:'mob_croc_w.png',
   npc_horse:'npc_horse.png',
-  npc_1:'npc_1.png', npc_3:'npc_3.png', npc_4:'npc_4.png',
-  npc_5:'npc_5.png', npc_7:'npc_7.png', npc_8:'npc_8.png'
+  npc_1:'npc_1.png', npc_2:'npc_2.png', npc_3:'npc_3.png', npc_4:'npc_4.png',
+  npc_5:'npc_5.png', npc_6:'npc_6.png', npc_7:'npc_7.png', npc_8:'npc_8.png', npc_9:'npc_9.png'
 };
 const IMG = {}; let toLoad = Object.keys(FILES).length, loaded = 0;
 for (const k in FILES){
@@ -249,6 +249,7 @@ const LEVELS = [
   furniture:[[420,300,120,90,'safe']],
   shadows:[[420,92,140,70],[100,400,140,120],[720,400,140,120]],
   glows:[], lamps:[{x:300,y:180},{x:620,y:380}], gadgets:[{x:600,y:130}],
+  gates:[],
   keyAt:{x:560,y:120},
   treasures:[{type:'crown',x:480,y:415},{type:'gem',x:305,y:330},{type:'gem',x:640,y:330},{type:'coin',x:90,y:150},{type:'coin',x:872,y:150},{type:'vase',x:360,y:540},{type:'coin',x:90,y:555}],
   guards:[
@@ -260,19 +261,45 @@ const LEVELS = [
   exit:{x:432,y:584,w:96}, start:{x:480,y:120} },
 
 { name:'终夜 · 钟楼', dark:true,
-  tip:'钟楼巨鳄永不遗忘 —— 被盯上就甩不掉。它能听见你的每一次呼吸',
+  tip:'钟楼巨鳄永不遗忘。王冠藏在上锁的宝库栅门后 —— 找到万能钥匙',
   walls:[...outerWalls(), [380,220,180,16], [380,236,16,148], [704,236,16,148], [380,384,70,16], [510,384,50,16], [200,250,16,130], [760,250,16,130]],
   furniture:[[460,300,80,60,'safe'],[100,120,60,50,'crate'],[830,520,60,50,'crate']],
   shadows:[[120,380,160,120],[760,400,140,120]],
   glows:[[480,300,80]], lamps:[{x:250,y:300},{x:700,y:450}], gadgets:[{x:80,y:180}],
+  gates:[{x:450,y:384,w:60,h:16}],
   keyAt:{x:865,y:120},
   treasures:[{type:'crown',x:480,y:262},{type:'gem',x:450,y:330},{type:'coin',x:860,y:300},{type:'gem',x:120,y:200},{type:'vase',x:120,y:545},{type:'coin',x:700,y:545}],
   guards:[
     {img:'mob_croc', trait:'boss', path:[[480,160],[820,160],[820,520],[480,520],[180,520],[180,160]], speed:55, R:300, fov:70},
     {img:'mob_hound1', trait:'sniff', path:[[150,500],[150,220],[320,220]], speed:100, R:140, fov:85},
-    {img:'mob_hound2', trait:'sniff', path:[[850,500],[850,220],[740,220]], speed:100, R:140, fov:85}],
+    {img:'mob_hound2', trait:'sniff', path:[[850,500],[850,220],[740,220]], speed:100, R:140, fov:85},
+    {img:'npc_6', trait:'beam', fixed:{x:620,y:310}, statue:true, speed:0, R:210, fov:30}],
   npcs:[],
-  exit:{x:432,y:584,w:96}, start:{x:480,y:550} }
+  exit:{x:432,y:584,w:96}, start:{x:480,y:550} },
+
+{ name:'尾声 · 金库深处', dark:true,
+  tip:'全宅最危险的东西都守在这里。钥匙在最远处，宝库在最中央',
+  walls:[...outerWalls(),
+    [420,280,120,16], [420,296,16,68], [524,296,16,68], [456,348,48,16],
+    [300,220,16,180], [620,220,16,180],
+    [700,430,40,16], [740,430,60,16], [800,430,40,16], [700,446,16,84], [840,446,16,84]],
+  furniture:[[740,470,80,40,'safe']],
+  shadows:[[100,200,160,100],[300,480,200,80]],
+  glows:[[480,420,90]], lamps:[{x:250,y:250},{x:650,y:120}], gadgets:[{x:600,y:120}],
+  gates:[{x:740,y:430,w:60,h:16}],
+  keyAt:{x:60,y:430},
+  treasures:[{type:'crown',x:480,y:322},{type:'gem',x:450,y:318},{type:'gem',x:510,y:318},{type:'gem',x:770,y:485},{type:'gem',x:120,y:120},{type:'coin',x:870,y:180},{type:'vase',x:120,y:540},{type:'coin',x:480,y:545},{type:'coin',x:870,y:540}],
+  guards:[
+    {img:'mob_croc', trait:'boss', path:[[480,150],[720,200],[760,330],[720,460],[480,500],[240,460],[200,330],[240,200]], speed:60, R:280, fov:70},
+    {img:'mob_dragon', trait:'triple', path:[[620,480],[860,480],[860,540],[620,540]], speed:60, R:190, fov:62},
+    {img:'mob_hound1', trait:'sniff', path:[[150,150],[480,110],[150,260]], speed:115, R:150, fov:85},
+    {img:'mob_hound2', trait:'sniff', path:[[860,110],[620,480],[860,540]], speed:115, R:150, fov:85},
+    {img:'mob_skeleton', trait:'ghost', roam:true, speed:55, R:150, fov:360},
+    {img:'npc_6', trait:'beam', fixed:{x:480,y:240}, statue:true, speed:0, R:210, fov:30},
+    {img:'npc_2', trait:'aura', fixed:{x:120,y:300}, statue:true, speed:0, R:130, fov:360},
+    {img:'mob_face', fixed:{x:560,y:400}, base:Math.PI/2, range:0.9, speed:0, R:170, fov:55}],
+  npcs:[],
+  exit:{x:432,y:584,w:96}, start:{x:480,y:555} }
 ];
 
 /* ---------------- 状态 ---------------- */
@@ -310,12 +337,14 @@ function buildLevel(i){
     need: t.type==='coin'?0.8 : t.type==='crown'?2.2 : t.type==='pic'?1.6 : 1.3}));
   S.lamps = S.level.lamps.map(l=>({...l, on:false}));
   S.gadgets = (L.gadgets||[]).map(g=>({x:sp(g.x), y:sp(g.y), cd:0, ripple:0}));
+  S.gates = (L.gates||[]).map(g=>({x:sp(g.x), y:sp(g.y), w:sp(g.w), h:sp(g.h), open:false}));
+  for (const gt of S.gates) ALLY.push(gt.rect = [gt.x, gt.y, gt.w, gt.h]);
   S.guards = L.guards.map(g=>{
     const fixed = !!g.fixed;
     const p0 = (g.path && g.path[0]) || [ROOM.x+ROOM.w/2, ROOM.y+240];
     const p1 = (g.path && g.path[1]) || p0;
     const x = fixed ? sp(g.fixed.x) : sp(p0[0]), y = fixed ? sp(g.fixed.y) : sp(p0[1]);
-    return { img:g.img, trait:g.trait||'', fixed, roam:!!g.roam,
+    return { img:g.img, trait:g.trait||'', fixed, roam:!!g.roam, statue:!!g.statue,
       path:(g.path||[]).map(p=>[sp(p[0]),sp(p[1])]), wp:1,
       speed:Math.round(g.speed*1.45), R:Math.round(g.R*1.35), fov:g.fov*Math.PI/180,
       base:g.base||0, range:g.range||0, scanT:Math.random()*10,
@@ -329,7 +358,7 @@ function buildLevel(i){
   S.player = { x:S.level.start.x, y:S.level.start.y, ang:Math.PI/2, sneak:false, moving:false, stepT:0, anim:0, faceDir:1 };
   S.lvStartScore = S.score;
   S.exitOpen = false; S.msg=''; S.msgT=0; S.flash=0; S.shake=0; S.danger=0; S.beatT=0;
-  S.trail.length = 0; S.trailT = 0; S.cam.init = false;
+  S.trail.length = 0; S.trailT = 0; S.cam.init = false; S.keysN = 0;
   S.items = {smoke:1, coin:3, potion:1}; S.smokes.length = 0; S.coinFx.length = 0; S.puddles.length = 0; S.potions.length = 0;
   S.lvTime = 0; S.busted = 0;
   // 万能钥匙
@@ -493,7 +522,8 @@ function guardUpdate(g, dt){
   const dull = g.dulled > 0 ? 0.6 : 1;
   const turn = g.trait==='slow' ? 1.6 : 6;
   if (g.fixed){
-    g.ang = g.base + Math.sin(g.scanT*0.7)*g.range;
+    if (g.trait==='beam'){ g.ang += dt*0.85; }          // 光束雕像：持续旋转扫射
+    else { g.ang = g.base + Math.sin(g.scanT*0.7)*g.range; }
     const see = canSee(g, p.sneak);
     if (see > 0){
       g.susp = Math.min(1, g.susp + dt*see);
@@ -847,6 +877,23 @@ function playerUpdate(dt){
       } else if (S.msgT <= 0) setMsg('按空格 · 用万能钥匙开门', 1.6);
     } else if (S.msgT <= 0){ setMsg('大门锁着 —— 还差 ' + left + ' 件宝物', 1.6); }
   }
+  // 上锁栅门：万能钥匙的真正用途
+  for (const gt of S.gates){
+    if (gt.open) continue;
+    const d = dist(p.x, p.y, gt.x+gt.w/2, gt.y+gt.h/2);
+    if (d < 66){
+      if (S.keysN > 0){
+        if (S.spaceEdge){
+          gt.open = true;
+          const gi = ALLY.indexOf(gt.rect);
+          if (gi >= 0) ALLY.splice(gi, 1);
+          S.keysN--; sfx.door();
+          setMsg('万能钥匙转动 —— 栅门开了！', 2.2);
+          unlock('locksmith');
+        } else if (S.msgT <= 0) setMsg('按空格 · 用万能钥匙开栅门', 1.6);
+      } else if (S.msgT <= 0) setMsg('栅门锁着 —— 需要万能钥匙', 1.6);
+    }
+  }
   S.spaceEdge = false;
 }
 const T_VAL = {coin:30, gem:50, vase:40, crown:100, pic:80};
@@ -858,17 +905,18 @@ function caught(){
   S.shake = 12; S.busted++;
   if (S.lives < 0){ S.mode = 'gameover'; }
 }
-const PARS = [75, 90, 105, 120, 140, 150];
+const PARS = [75, 90, 105, 120, 140, 150, 160];
 function mulberry32(a){ return function(){ a|=0; a = a+0x6D2B79F5|0; let t = Math.imul(a^a>>>15, 1|a); t = t + Math.imul(t^t>>>7, 61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
 // 成就
 const ACH = [
-  {id:'first',  name:'首夜告捷',       desc:'通过第一夜'},
-  {id:'shadow', name:'无影之贼',       desc:'任意关卡拿到 S 评价'},
-  {id:'ghost',  name:'来无影去无踪',   desc:'整关从未被抓'},
-  {id:'rich',   name:'满载而归',       desc:'单关战利品 ≥ ¥400'},
-  {id:'boss',   name:'屠鳄英雄',       desc:'通过钟楼'},
-  {id:'daily',  name:'每日一偷',       desc:'完成一次每日挑战'},
-  {id:'master', name:'神偷',           desc:'六关全部拿到 S 评价'}
+  {id:'first',    name:'首夜告捷',     desc:'通过第一夜'},
+  {id:'shadow',   name:'无影之贼',     desc:'任意关卡拿到 S 评价'},
+  {id:'ghost',    name:'来无影去无踪', desc:'整关从未被抓'},
+  {id:'rich',     name:'满载而归',     desc:'单关战利品 ≥ ¥400'},
+  {id:'locksmith',name:'开锁匠',       desc:'用万能钥匙打开一座栅门'},
+  {id:'boss',     name:'屠鳄英雄',     desc:'通过钟楼'},
+  {id:'daily',    name:'每日一偷',     desc:'完成一次每日挑战'},
+  {id:'master',   name:'神偷',         desc:'全部关卡拿到 S 评价'}
 ];
 function achGot(){ try{ return JSON.parse(localStorage.getItem('burglar_ach')||'{}'); }catch(e){ return {}; } }
 function unlock(id){
@@ -928,7 +976,7 @@ function onKey(k){
   if (S.mode==='title'){
     if (k===' '){ S.score=0; S.lives=3; S.daily=false; buildLevel(0); sfx.ui(); }
     if (k==='d'){ S.score=0; S.lives=3; S.daily=true; buildLevel((new Date().getDate())%LEVELS.length); sfx.ui(); }
-    if (k>='1' && k<='6'){ S.score=0; S.lives=3; S.daily=false; buildLevel(parseInt(k,10)-1); sfx.ui(); }
+    if (k>='1' && k<='7'){ S.score=0; S.lives=3; S.daily=false; buildLevel(parseInt(k,10)-1); sfx.ui(); }
   } else if (S.mode==='play'){
     if (S.flyover > 0){ S.flyover = 0.01; S.cam.init = false; return; }   // 任意键跳过开场运镜
     if (k==='r'){ S.score = S.lvStartScore; buildLevel(S.lvIndex); sfx.ui(); }
@@ -1123,12 +1171,17 @@ function drawCones(g){
       gd.ang = fovSave;
     }
     if (!ghost){
-      coneG.globalCompositeOperation = 'destination-out';
-      for (const w of S.level.walls){
-        const A=proj(w[0],w[1]), B=proj(w[0]+w[2],w[1]), C=proj(w[0]+w[2],w[1]+w[3]), D=proj(w[0],w[1]+w[3]);
-        coneG.beginPath(); coneG.moveTo(A.x,A.y); coneG.lineTo(B.x,B.y); coneG.lineTo(C.x,C.y); coneG.lineTo(D.x,D.y); coneG.closePath(); coneG.fill();
-      }
-      coneG.globalCompositeOperation = 'source-over';
+    coneG.globalCompositeOperation = 'destination-out';
+    for (const w of S.level.walls){
+      const A=proj(w[0],w[1]), B=proj(w[0]+w[2],w[1]), C=proj(w[0]+w[2],w[1]+w[3]), D=proj(w[0],w[1]+w[3]);
+      coneG.beginPath(); coneG.moveTo(A.x,A.y); coneG.lineTo(B.x,B.y); coneG.lineTo(C.x,C.y); coneG.lineTo(D.x,D.y); coneG.closePath(); coneG.fill();
+    }
+    for (const gt of S.gates){
+      if (gt.open) continue;
+      const A=proj(gt.x,gt.y), B=proj(gt.x+gt.w,gt.y), C=proj(gt.x+gt.w,gt.y+gt.h), D=proj(gt.x,gt.y+gt.h);
+      coneG.beginPath(); coneG.moveTo(A.x,A.y); coneG.lineTo(B.x,B.y); coneG.lineTo(C.x,C.y); coneG.lineTo(D.x,D.y); coneG.closePath(); coneG.fill();
+    }
+    coneG.globalCompositeOperation = 'source-over';
     }
     coneG.restore();
     const flicker = 0.9 + 0.1*Math.sin(S.t*13 + gd.x*0.05);
@@ -1243,6 +1296,38 @@ function drawLamp(g, lp){
   }
 }
 
+function drawGate(g, gt){
+  const P1 = proj(gt.x, gt.y), P2 = proj(gt.x+gt.w, gt.y), P3 = proj(gt.x+gt.w, gt.y+gt.h), P4 = proj(gt.x, gt.y+gt.h);
+  if (gt.open){
+    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(P1.x,P1.y); g.lineTo(P2.x,P2.y); g.lineTo(P3.x,P3.y); g.lineTo(P4.x,P4.y); g.closePath(); g.stroke();
+    return;
+  }
+  const H2 = 36;
+  g.fillStyle = '#0a0a0a';
+  g.beginPath(); g.moveTo(P1.x,P1.y-H2); g.lineTo(P2.x,P2.y-H2); g.lineTo(P2.x,P2.y); g.lineTo(P1.x,P1.y); g.closePath(); g.fill();
+  g.fillStyle = '#191919';
+  g.beginPath(); g.moveTo(P4.x,P4.y-H2); g.lineTo(P3.x,P3.y-H2); g.lineTo(P3.x,P3.y); g.lineTo(P4.x,P4.y); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.6)'; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(P1.x,P1.y-H2); g.lineTo(P2.x,P2.y-H2); g.lineTo(P3.x,P3.y-H2); g.lineTo(P4.x,P4.y-H2); g.closePath(); g.stroke();
+  g.lineWidth = 2; g.strokeStyle = '#fff';
+  for (let i=1;i<4;i++){
+    const t = i/4;
+    const bx = P1.x+(P2.x-P1.x)*t, by = P1.y+(P2.y-P1.y)*t;
+    const cx2 = P4.x+(P3.x-P4.x)*t, cy2 = P4.y+(P3.y-P4.y)*t;
+    g.beginPath(); g.moveTo(bx,by-H2); g.lineTo(cx2,cy2); g.stroke();
+  }
+  const mid = proj(gt.x+gt.w/2, gt.y+gt.h/2);
+  g.fillStyle = '#fff';
+  g.beginPath(); g.arc(mid.x, mid.y-H2*0.5, 3.5, 0, TAU); g.fill();
+  g.fillRect(mid.x-1.5, mid.y-H2*0.5, 3, 6);
+  const d = dist(gt.x+gt.w/2, gt.y+gt.h/2, S.player.x, S.player.y);
+  if (d < 72){
+    g.fillStyle = '#fff'; g.font = '700 12px Georgia'; g.textAlign = 'center';
+    g.fillText(S.keysN > 0 ? '按空格 · 万能钥匙开门' : '需要万能钥匙', mid.x, mid.y - H2 - 12);
+  }
+}
+
 function drawKeyItem(g){
   const k = S.keyItem; if (!k || k.got) return;
   const P = proj(k.x, k.y);
@@ -1331,6 +1416,13 @@ function drawGuard(g, gd){
   const wid = (im.width-10)/im.height*hgt;
   const P = proj(gd.x, gd.y);
   drawCastShadow(g, gd.x, gd.y);
+  if (gd.statue){                                   // 雕像基座：区分静态守卫
+    g.fillStyle = '#2b2b2b';
+    g.beginPath(); g.ellipse(P.x, P.y+2, wid*0.36, 9, 0, 0, TAU); g.fill();
+    g.fillRect(P.x-wid*0.24, P.y-6, wid*0.48, 10);
+    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1;
+    g.strokeRect(P.x-wid*0.24, P.y-6, wid*0.48, 10);
+  }
   g.fillStyle = 'rgba(255,255,255,0.07)';
   g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.3, 7, 0, 0, TAU); g.fill();
   const chase = gd.state==='chase';
@@ -1433,6 +1525,10 @@ function drawMinimap(g){
   const X = x => ox + (x-ROOM.x)*s, Y = y => oy + (y-ROOM.y)*s;
   g.strokeStyle = 'rgba(255,255,255,0.35)';
   for (const w of S.level.walls){ g.strokeRect(X(w[0]), Y(w[1]), w[2]*s, w[3]*s); }
+  for (const gt of S.gates){
+    g.fillStyle = gt.open ? 'rgba(255,255,255,0.15)' : '#fff';
+    g.fillRect(X(gt.x)-1, Y(gt.y)-1, Math.max(3, gt.w*s), Math.max(3, gt.h*s));
+  }
   g.fillStyle = 'rgba(255,255,255,0.2)';
   for (const sh of (S.level.shadows||[])) g.fillRect(X(sh[0]), Y(sh[1]), sh[2]*s, sh[3]*s);
   for (const lp of S.lamps){
@@ -1534,7 +1630,7 @@ function renderTitle(g){
   g.font='700 20px "Courier New"';
   g.fillText('T H E   B U R G L A R', W*0.465, H*0.315);
   g.font='900 24px Georgia,"Songti SC",serif';
-  g.fillText('今夜，六间密室，满屋财宝。', W*0.465, H*0.42);
+  g.fillText('今夜，七间密室，满屋财宝。', W*0.465, H*0.42);
   g.fillText('别被看见。', W*0.465, H*0.465);
   g.font='700 16px Georgia';
   g.fillText('你扮演 —— 礼帽绅士', W*0.465, H*0.535);
@@ -1597,6 +1693,7 @@ function renderPlay(g){
   for (const t of S.treasures) if (!t.got) items.push({d:t.x+t.y, k:'tre', t});
   for (const gd of S.gadgets) items.push({d:gd.x+gd.y, k:'gad', gd});
   if (S.keyItem && !S.keyItem.got) items.push({d:S.keyItem.x+S.keyItem.y, k:'key'});
+  for (const gt of S.gates) if (!gt.open) items.push({d:(2*(gt.x+gt.y)+gt.w+gt.h)/2, k:'gate', gt});
   for (const lp of S.lamps) items.push({d:lp.x+lp.y, k:'lamp', lp});
   for (const n of S.npcs) items.push({d:n.x+n.y, k:'npc', n});
   for (const gd of S.guards) items.push({d:gd.x+gd.y, k:'gd', gd});
@@ -1637,6 +1734,7 @@ function renderPlay(g){
     else if (it.k==='tre') drawTreasure(sceneG, it.t);
     else if (it.k==='gad') drawGadget(sceneG, it.gd);
     else if (it.k==='key') drawKeyItem(sceneG);
+    else if (it.k==='gate') drawGate(sceneG, it.gt);
     else if (it.k==='lamp') drawLamp(sceneG, it.lp);
     else if (it.k==='npc') drawNpc(sceneG, it.n);
     else if (it.k==='gd') drawGuard(sceneG, it.gd);
@@ -1835,7 +1933,7 @@ function renderGameOver(g){
   }
 }
 function renderWin(g){
-  panel(g, '完美得手！','六间密室 · 总战利品 ¥'+S.score+'　最高纪录 ¥'+S.best);
+  panel(g, '完美得手！','七间密室 · 总战利品 ¥'+S.score+'　最高纪录 ¥'+S.best);
   const im = whiteOf('hero_moon'); if (im.width){
     const r = Math.min(W,H)*0.26;
     g.drawImage(im, W/2-r*1.2, H*0.33, r*2.4, r*1.96);
