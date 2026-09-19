@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>夜贼 THE BURGLAR · 黑白潜入</title>
+<style>
+  html,body{margin:0;padding:0;background:#000;color:#fff;overflow:hidden;height:100%;}
+  body{font-family:Georgia,"Songti SC","SimSun",serif;}
+  canvas{display:block;position:fixed;inset:0;}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+/* ============================================================
+   夜贼 THE BURGLAR —— 黑白等距潜入（全屏 + 黑暗视野版）
+   · 全屏自适应；主角只能看清身边一圈，台灯可点亮区域
+   · 守卫灯光/台灯/宝物闪光能穿透黑暗；小地图显示全局
+   · 按住空格蓄力偷窃（有声响）；唱机声东击西；出口计数提示
+   · 每只怪物有独特行为（环视/慢转/乱窜/冲锋/穿墙/突刺/三首/循迹）
+   ============================================================ */
+let W = window.innerWidth, H = window.innerHeight;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const TAU = Math.PI * 2;
+const clamp = (v,a,b)=>v<a?a:v>b?b:v;
+const dist = (x1,y1,x2,y2)=>Math.hypot(x2-x1,y2-y1);
+const lerpAng = (a,b,t)=>{let d=((b-a+Math.PI)%TAU+TAU)%TAU-Math.PI;return a+d*t;};
+
+/* ---------------- 资源 ---------------- */
+const FILES = {
+  hero_moon:'hero_moon.png', hero_spy:'hero_spy.png', hero_reaper:'hero_reaper.png',
+  mob_cat:'mob_cat.png', mob_samurai:'mob_samurai.png', mob_monkey:'mob_monkey.png',
+  mob_bear:'mob_bear.png', mob_dragon:'mob_dragon.png', mob_face:'mob_face.png',
+  mob_hound1:'mob_hound1.png', mob_hound2:'mob_hound2.png',
+  mob_skeleton:'mob_skeleton_w.png', mob_serpent:'mob_serpent_w.png', mob_croc:'mob_croc_w.png',
+  npc_horse:'npc_horse.png',
+  npc_1:'npc_1.png', npc_3:'npc_3.png', npc_4:'npc_4.png',
+  npc_5:'npc_5.png', npc_7:'npc_7.png', npc_8:'npc_8.png'
+};
+const IMG = {}; let toLoad = Object.keys(FILES).length, loaded = 0;
+for (const k in FILES){
+  const im = new Image();
+  im.onload = ()=>{ loaded++; };
+  im.onerror = ()=>{ loaded++; console.warn('missing', FILES[k]); };
+  im.src = 'assets/' + FILES[k];
+  IMG[k] = im;
+}
+const whiteCache = {};
+function whiteOf(key){
+  if (whiteCache[key]) return whiteCache[key];
+  const src = IMG[key], c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  const g = c.getContext('2d');
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-in';
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  whiteCache[key] = c; return c;
+}
+// 黑色原画 + 白色描边（黑暗中保持怪物原貌可见）
+const rimCache = {};
+function rimOf(key){
+  if (rimCache[key]) return rimCache[key];
+  const src = IMG[key];
+  const c = document.createElement('canvas');
+  c.width = src.width + 10; c.height = src.height + 10;
+  const g = c.getContext('2d');
+  const w = whiteOf(key);
+  for (const [dx,dy] of [[-2.5,0],[2.5,0],[0,-2.5],[0,2.5],[-2,-2],[2,-2],[-2,2],[2,2]])
+    g.drawImage(w, 5+dx, 5+dy);
+  g.drawImage(src, 5, 5);
+  rimCache[key] = c; return c;
+}
+
+/* ---------------- 音效 ---------------- */
+let AC = null, muted = false;
+function ac(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } return AC; }
+function beep(f, dur=0.08, type='square', vol=0.12, slide=0){
+  if (muted) return; const a = ac(); if(!a) return;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, a.currentTime);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide), a.currentTime+dur);
+  g.gain.setValueAtTime(vol, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime+dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(); o.stop(a.currentTime+dur+0.02);
+}
+const sfx = {
+  pick(){ beep(880,.07); setTimeout(()=>beep(1318,.1),70); },
+  crack(){ beep(300+Math.random()*80,.03,'square',.05); },
+  step(){ beep(90,.03,'square',.03); },
+  ask(){ beep(660,.09,'square',.1); },
+  alarm(){ beep(196,.25,'sawtooth',.14,-60); },
+  caught(){ beep(110,.5,'sawtooth',.2,-60); },
+  door(){ beep(440,.09); setTimeout(()=>beep(554,.12),90); },
+  win(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,.14),i*110)); },
+  ui(){ beep(520,.05,'square',.08); },
+  lamp(){ beep(760,.06,'triangle',.15); setTimeout(()=>beep(950,.08,'triangle',.12),70); },
+  radio(){ beep(720,.12,'triangle',.18); setTimeout(()=>beep(540,.18,'triangle',.16),130); },
+  growl(){ beep(72,.5,'sawtooth',.3,-40); },
+  snort(){ beep(150,.07,'square',.12); setTimeout(()=>beep(120,.07,'square',.1),110); },
+  // 第五人格式心跳：低频闷响"咚-咚"，音量与节奏随危险变化
+  heart(vol){ if (muted) return; const a = ac(); if (!a) return;
+    const mk = (t0, f0, f1, v, dur) => {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f0, a.currentTime + t0);
+      o.frequency.exponentialRampToValueAtTime(f1, a.currentTime + t0 + dur);
+      g.gain.setValueAtTime(0.0001, a.currentTime + t0);
+      g.gain.linearRampToValueAtTime(v, a.currentTime + t0 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + t0 + dur);
+      o.connect(g); g.connect(a.destination);
+      o.start(a.currentTime + t0); o.stop(a.currentTime + t0 + dur + 0.05);
+    };
+    mk(0, 115, 42, vol, 0.16);
+    mk(0.17, 95, 38, vol*0.65, 0.13);
+  }
+};
+
+/* ---------------- 输入 ---------------- */
+const keys = {}; const pendingRelease = {};
+addEventListener('keydown', e=>{
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+  const k = e.key.toLowerCase();
+  keys[k] = true; delete pendingRelease[k];
+  onKey(k);
+  ac() && AC.resume && AC.resume();
+});
+addEventListener('keyup', e=>{ pendingRelease[e.key.toLowerCase()] = true; });
+function flushRelease(){ for (const k in pendingRelease){ keys[k] = false; delete pendingRelease[k]; } }
+const ax = ()=>{
+  let x = (keys['arrowright']||keys['d']?1:0) - (keys['arrowleft']||keys['a']?1:0);
+  let y = (keys['arrowdown']||keys['s']?1:0) - (keys['arrowup']||keys['w']?1:0);
+  if (x&&y){ x*=0.7071; y*=0.7071; }
+  return [x,y];
+};
+
+/* ---------------- 关卡数据（原始坐标，构建时放大 SC 倍） ---------------- */
+const SC = 1.9;
+const ROOM = {x:40, y:72, w:880, h:528, t:16};
+function outerWalls(){
+  const {x,y,w,h,t} = ROOM;
+  return [[x,y,w,t],[x,y+h-t,w,t],[x,y,t,h],[x+w-t,y,t,h]];
+}
+const LEVELS = [
+{ name:'第一夜 · 宅邸门厅', dark:false,
+  tip:'靠近宝物按住空格偷取 · 唱机声东击西 · 台灯照亮四周 · 黑影可以藏身',
+  walls:[...outerWalls(), [56,340,340,16], [560,88,16,228]],
+  furniture:[[170,240,130,54,'table'],[600,430,90,120,'shelf'],[150,440,150,64,'sofa']],
+  shadows:[[440,92,90,60],[430,370,200,120]],
+  glows:[], lamps:[{x:350,y:150},{x:740,y:480}], gadgets:[{x:250,y:140}],
+  treasures:[{type:'coin',x:95,y:270},{type:'gem',x:845,y:150},{type:'vase',x:790,y:500}],
+  guards:[{img:'mob_cat', trait:'scan', path:[[140,180],[480,180],[480,300],[140,300]], speed:62, R:180, fov:80}],
+  npcs:[{img:'npc_4', x:300, y:480, box:[100,400,320,160]}, {img:'npc_7', x:700, y:300, box:[600,360,280,200]}],
+  exit:{x:432,y:584,w:96}, start:{x:480,y:130}, intro:true },
+
+{ name:'第二夜 · 书房', dark:false,
+  tip:'武士眼神锐利却转身迟缓；上蹿下跳的猴子防不胜防',
+  walls:[...outerWalls(), [460,88,16,268], [240,420,440,16], [700,88,16,188]],
+  furniture:[[80,110,120,40,'shelf'],[240,110,120,40,'shelf'],[620,330,180,70,'table'],[820,110,70,80,'safe'],[100,480,120,60,'table']],
+  shadows:[[440,92,90,60],[320,470,170,90],[560,120,110,80]],
+  glows:[], lamps:[{x:350,y:250},{x:760,y:300}], gadgets:[{x:770,y:140}],
+  treasures:[{type:'gem',x:135,y:185},{type:'coin',x:350,y:300},{type:'crown',x:855,y:255},{type:'vase',x:500,y:505},{type:'gem',x:760,y:520}],
+  guards:[
+    {img:'mob_samurai', trait:'slow', path:[[130,180],[420,180],[420,330],[130,330]], speed:44, R:260, fov:50},
+    {img:'mob_monkey', trait:'dart', path:[[250,530],[820,530],[820,470],[250,470]], speed:105, R:130, fov:100}],
+  npcs:[{img:'npc_1', x:850, y:390, box:[740,340,150,220]}],
+  exit:{x:432,y:584,w:96}, start:{x:525,y:130} },
+
+{ name:'第三夜 · 画廊', dark:false,
+  tip:'熊一旦咆哮冲锋就无处可躲；客人看到你会喊人',
+  walls:[...outerWalls(), [320,160,16,260], [640,160,16,260]],
+  furniture:[[350,240,96,40,'bench'],[350,480,96,40,'bench'],[120,300,44,110,'bench'],[800,300,44,110,'bench']],
+  shadows:[[400,320,180,130]],
+  glows:[], lamps:[{x:250,y:460},{x:600,y:420}], gadgets:[{x:250,y:120}],
+  treasures:[{type:'pic',x:120,y:160},{type:'pic',x:860,y:160},{type:'crown',x:480,y:545},{type:'gem',x:220,y:540},{type:'coin',x:700,y:120}],
+  guards:[
+    {img:'mob_bear', trait:'charge', path:[[480,140],[480,540]], speed:60, R:205, fov:60},
+    {img:'mob_cat', trait:'', path:[[130,540],[830,540]], speed:80, R:150, fov:85}],
+  npcs:[{img:'npc_3', x:160, y:170, box:[90,120,190,180]}, {img:'npc_5', x:800, y:170, box:[680,120,200,180]},
+        {img:'npc_8', x:160, y:520, box:[90,460,190,110]}, {img:'npc_horse', x:760, y:480, box:[690,430,190,140]}],
+  exit:{x:432,y:584,w:96}, start:{x:600,y:300} },
+
+{ name:'第四夜 · 地窖', dark:true,
+  tip:'骷髅穿墙且毫无死角；蛇会突然吐信突刺；点亮台灯才能看清深处',
+  walls:[...outerWalls(), [200,200,500,16], [200,216,16,164], [700,216,16,164], [420,396,16,188], [216,380,204,16]],
+  furniture:[[100,110,44,44,'crate'],[860,110,44,44,'crate'],[770,220,70,90,'coffin'],[300,300,60,50,'crate']],
+  shadows:[],
+  glows:[[480,300,72],[150,500,64],[860,480,60]], lamps:[{x:480,y:150},{x:750,y:450}], gadgets:[{x:600,y:120}],
+  treasures:[{type:'gem',x:110,y:300},{type:'coin',x:850,y:300},{type:'vase',x:120,y:545},{type:'crown',x:660,y:545},{type:'gem',x:865,y:545}],
+  guards:[
+    {img:'mob_skeleton', trait:'ghost', roam:true, speed:52, R:150, fov:360},
+    {img:'mob_serpent', trait:'lance', path:[[110,480],[380,480],[380,560],[110,560]], speed:72, R:190, fov:55},
+    {img:'mob_cat', trait:'phase', roam:true, speed:80, R:150, fov:90}],
+  npcs:[],
+  exit:{x:432,y:584,w:96}, start:{x:480,y:120} },
+
+{ name:'终夜 · 宝库', dark:false,
+  tip:'三头龙有三个视野；双翼兽循着足迹找来；石像盯着大门',
+  walls:[...outerWalls(), [250,220,440,16], [250,236,16,208], [674,236,16,208], [250,444,200,16], [506,444,168,16], [120,88,16,40], [824,88,16,40]],
+  furniture:[[420,300,120,90,'safe']],
+  shadows:[[420,92,140,70],[100,400,140,120],[720,400,140,120]],
+  glows:[], lamps:[{x:300,y:180},{x:620,y:380}], gadgets:[{x:600,y:130}],
+  treasures:[{type:'crown',x:480,y:415},{type:'gem',x:305,y:330},{type:'gem',x:640,y:330},{type:'coin',x:90,y:150},{type:'coin',x:872,y:150},{type:'vase',x:360,y:540},{type:'coin',x:90,y:555}],
+  guards:[
+    {img:'mob_dragon', trait:'triple', path:[[480,200],[860,200],[860,540],[480,540],[100,540],[100,200]], speed:52, R:200, fov:62},
+    {img:'mob_hound1', trait:'sniff', path:[[200,170],[200,350],[90,350],[90,170]], speed:112, R:150, fov:85},
+    {img:'mob_hound2', trait:'sniff', path:[[760,170],[760,350],[870,350],[870,170]], speed:112, R:150, fov:85},
+    {img:'mob_face', fixed:{x:478, y:520}, base:Math.PI/2, range:1.0, speed:0, R:185, fov:55}],
+  npcs:[],
+  exit:{x:432,y:584,w:96}, start:{x:480,y:120} }
+];
+
+/* ---------------- 状态 ---------------- */
+const S = { mode:'loading', lvIndex:0, level:null, guards:[], npcs:[], treasures:[], gadgets:[], lamps:[], player:null,
+  score:0, lvStartScore:0, lives:3, t:0, best:+(localStorage.getItem('burglar_best')||0),
+  exitOpen:false, msg:'', msgT:0, flash:0, paused:false, blink:0, chaseBeep:0,
+  shake:0, danger:0, beatT:0, spaceEdge:false, trail:[], trailT:0,
+  cam:{u:0, v:0, init:false} };
+const ALLY = [];
+window.__G = S; window.__BUILD = buildLevel;
+
+const SPD = 330, SNEAK = 150;
+
+function buildLevel(i){
+  const L = LEVELS[i];
+  const sp = v => Math.round(v*SC);
+  ROOM.x = sp(40); ROOM.y = sp(72); ROOM.w = sp(880); ROOM.h = sp(528); ROOM.t = 16;
+  S.lvIndex = i;
+  S.level = { name:L.name, dark:L.dark, tip:L.tip, intro:L.intro,
+    walls: L.walls.map(w=>[sp(w[0]),sp(w[1]),sp(w[2]),sp(w[3])]),
+    furniture: L.furniture.map(f=>[sp(f[0]),sp(f[1]),sp(f[2]),sp(f[3]),f[4]]),
+    shadows: L.shadows.map(s=>[sp(s[0]),sp(s[1]),sp(s[2]),sp(s[3])]),
+    glows: (L.glows||[]).map(g=>[sp(g[0]),sp(g[1]),sp(g[2])]),
+    lamps: (L.lamps||[]).map(l=>({x:sp(l.x), y:sp(l.y)})),
+    treasures: L.treasures.map(t=>({type:t.type, x:sp(t.x), y:sp(t.y)})),
+    exit: {x:sp(L.exit.x), y:sp(L.exit.y), w:sp(L.exit.w)},
+    start: {x:sp(L.start.x), y:sp(L.start.y)} };
+  ALLY.length = 0;
+  S.level.walls.forEach(w=>ALLY.push(w));
+  S.level.furniture.forEach(f=>ALLY.push([f[0],f[1],f[2],f[3]]));
+  S.treasures = S.level.treasures.map(t=>({...t, got:false, ph:Math.random()*TAU, stealT:0,
+    need: t.type==='coin'?0.8 : t.type==='crown'?2.2 : t.type==='pic'?1.6 : 1.3}));
+  S.lamps = S.level.lamps.map(l=>({...l, on:false}));
+  S.gadgets = (L.gadgets||[]).map(g=>({x:sp(g.x), y:sp(g.y), cd:0, ripple:0}));
+  S.guards = L.guards.map(g=>{
+    const fixed = !!g.fixed;
+    const p0 = (g.path && g.path[0]) || [ROOM.x+ROOM.w/2, ROOM.y+240];
+    const p1 = (g.path && g.path[1]) || p0;
+    const x = fixed ? sp(g.fixed.x) : sp(p0[0]), y = fixed ? sp(g.fixed.y) : sp(p0[1]);
+    return { img:g.img, trait:g.trait||'', fixed, roam:!!g.roam,
+      path:(g.path||[]).map(p=>[sp(p[0]),sp(p[1])]), wp:1,
+      speed:Math.round(g.speed*1.45), R:Math.round(g.R*1.35), fov:g.fov*Math.PI/180,
+      base:g.base||0, range:g.range||0, scanT:Math.random()*10,
+      x, y, ang: fixed ? g.base : (g.roam ? Math.random()*TAU : Math.atan2(sp(p1[1])-y, sp(p1[0])-x)),
+      state:'patrol', susp:0, lastSeen:null, waitT:0, alertT:0, pauseT:0,
+      dartCd:1.5+Math.random()*2, dart:null, lanceFlash:false, sniffCd:2+Math.random()*2, rushT:0,
+      rx:0, ry:0 };
+  });
+  S.npcs = L.npcs.map(n=>({ img:n.img, x:sp(n.x), y:sp(n.y), box:[sp(n.box[0]),sp(n.box[1]),sp(n.box[2]),sp(n.box[3])],
+    tx:sp(n.x), ty:sp(n.y), ang:0, waitT:Math.random()*2, alertT:0, moving:false, stuck:0 }));
+  S.player = { x:S.level.start.x, y:S.level.start.y, ang:Math.PI/2, sneak:false, moving:false, stepT:0, anim:0, faceDir:1 };
+  S.lvStartScore = S.score;
+  S.exitOpen = false; S.msg=''; S.msgT=0; S.flash=0; S.shake=0; S.danger=0; S.beatT=0;
+  S.trail.length = 0; S.trailT = 0; S.cam.init = false;
+  buildStatic();
+  S.mode = 'play';
+  const q = new URLSearchParams(location.search);
+  if (q.has('nearexit')){ S.exitOpen = true; S.player.x = S.level.exit.x + S.level.exit.w/2; S.player.y = ROOM.y+ROOM.h-24; }
+  setMsg(L.name + (L.intro ? '　[WASD]移动 [Shift]潜行 [按住空格]偷取' : ''), 3.5);
+}
+function setMsg(m, t){ S.msg = m; S.msgT = t; }
+
+/* ---------------- 几何 ---------------- */
+function collide(px, py, r){
+  let x = px, y = py;
+  for (const [rx,ry,rw,rh] of ALLY){
+    const cx = clamp(x, rx, rx+rw), cy = clamp(y, ry, ry+rh);
+    const dx = x-cx, dy = y-cy, d2 = dx*dx+dy*dy;
+    if (d2 < r*r){
+      const d = Math.sqrt(d2)||0.001;
+      if (d2 === 0){ x = cx + r; } else { x = cx + dx/d*r; y = cy + dy/d*r; }
+    }
+  }
+  const {x:RX,y:RY,w:RW,h:RH,t} = ROOM;
+  x = clamp(x, RX+t+r, RX+RW-t-r); y = clamp(y, RY+t+r, RY+RH-t-r);
+  return [x,y];
+}
+function pointSolid(x, y){
+  for (const [rx,ry,rw,rh] of ALLY)
+    if (x>=rx && x<=rx+rw && y>=ry && y<=ry+rh) return true;
+  return false;
+}
+function losBlocked(x1,y1,x2,y2){
+  const d = dist(x1,y1,x2,y2), n = Math.ceil(d/10);
+  for (let i=1;i<n;i++){
+    const t = i/n;
+    if (pointSolid(x1+(x2-x1)*t, y1+(y2-y1)*t)) return true;
+  }
+  return false;
+}
+function inRect(x,y,[rx,ry,rw,rh]){ return x>=rx&&x<=rx+rw&&y>=ry&&y<=ry+rh; }
+function inShadow(x,y){ return (S.level.shadows||[]).some(s=>inRect(x,y,s)); }
+// 亮处：光圈陷阱 + 亮着的台灯 —— 站进去会被直接暴露
+function inLight(x,y){
+  for (const [gx,gy,gr] of (S.level.glows||[])) if (dist(x,y,gx,gy) < gr*1.15) return true;
+  for (const lp of S.lamps) if (lp.on && dist(x,y,lp.x,lp.y) < 260) return true;
+  return false;
+}
+
+/* ---------------- 视野参数与感知 ---------------- */
+function visParams(g){
+  let R = g.R, flash = false;
+  if (g.trait==='lance'){
+    const c = g.scanT % 3.6;
+    if (c > 2.9) R = g.R*2.6;                    // 吐信突刺：更长更频繁
+    g.lanceFlash = c > 2.3 && c <= 2.9;
+  }
+  return {R, flash};
+}
+function traitShout(g, text){
+  if ((g.msgCd||0) <= 0){ g.msgCd = 6; setMsg(text, 1.8); }
+}
+function canSee(g, sneak){
+  const p = S.player;
+  const vp = visParams(g);
+  const d = dist(g.x,g.y,p.x,p.y);
+  if (d > vp.R) return 0;
+  if (!g.fixed && (g.trait==='ghost' || g.trait==='phase')){
+    if (g.trait==='phase'){
+      const rel2 = Math.atan2(p.y-g.y, p.x-g.x);
+      const diff2 = Math.abs(((rel2-g.ang+Math.PI)%TAU+TAU)%TAU-Math.PI);
+      if (diff2 > g.fov/2) return 0;
+    }
+    let rate = 1.4 - d/vp.R;
+    if (sneak) rate *= 0.5;
+    return Math.max(0, rate);
+  }
+  const rel = Math.atan2(p.y-g.y, p.x-g.x);
+  if (g.trait==='triple'){
+    let seen = false;
+    for (const off of [0, 0.62, -0.62]){
+      const diff = Math.abs(((rel-(g.ang+off)+Math.PI)%TAU+TAU)%TAU-Math.PI);
+      if (diff <= g.fov/2){ seen = true; break; }
+    }
+    if (!seen) return 0;
+  } else {
+    const diff = Math.abs(((rel-g.ang+Math.PI)%TAU+TAU)%TAU-Math.PI);
+    if (diff > g.fov/2) return 0;
+  }
+  if (losBlocked(g.x,g.y,p.x,p.y)) return 0;
+  let rate = 1.7 - d/vp.R;
+  if (d < vp.R*0.55) rate *= 2.6;              // 走进灯光内圈：几乎立刻暴露
+  if (sneak) rate *= 0.45;
+  if (inShadow(p.x,p.y) && g.state!=='chase') rate *= 0.15;
+  if (inLight(p.x,p.y)) rate *= 3;             // 站在亮处：极度危险
+  return rate;
+}
+function guardAlert(x, y){
+  for (const g of S.guards){
+    if (g.fixed) continue;
+    g.lastSeen = {x, y};
+    if (g.state !== 'chase'){ g.state = 'investigate'; g.waitT = 6; g.rushT = 3; g.susp = Math.max(g.susp, 0.7); }
+  }
+}
+
+/* ---------------- 守卫 AI ---------------- */
+function ghostRoam(g, dt){
+  if (!g.rx || dist(g.x,g.y,g.rx,g.ry) < 24){
+    const m = ROOM.t + 40;
+    g.rx = ROOM.x + m + Math.random()*(ROOM.w - 2*m);
+    g.ry = ROOM.y + m + Math.random()*(ROOM.h - 2*m);
+  }
+  const ta = Math.atan2(g.ry-g.y, g.rx-g.x);
+  g.ang = lerpAng(g.ang, ta, Math.min(1, dt*3));
+  g.x += Math.cos(g.ang)*g.speed*1.0*dt;
+  g.y += Math.sin(g.ang)*g.speed*1.0*dt;
+}
+function guardUpdate(g, dt){
+  const p = S.player;
+  g.scanT += dt;
+  g.alertT = Math.max(0, (g.alertT||0) - dt);
+  g.rushT = Math.max(0, (g.rushT||0) - dt);
+  g.msgCd = Math.max(0, (g.msgCd||0) - dt);
+  const turn = g.trait==='slow' ? 1.6 : 6;
+  if (g.fixed){
+    g.ang = g.base + Math.sin(g.scanT*0.7)*g.range;
+    const see = canSee(g, p.sneak);
+    if (see > 0){
+      g.susp = Math.min(1, g.susp + dt*see);
+      if (g.susp >= 1){ g.susp = 0; sfx.alarm(); setMsg('石像看到了你，守卫正赶来！', 2); guardAlert(p.x, p.y); }
+    } else g.susp = Math.max(0, g.susp - dt*0.5);
+  } else if (g.roam){
+    ghostRoam(g, dt);
+    const see = canSee(g, p.sneak);
+    if (see > 0){
+      g.susp = Math.min(1.2, g.susp + dt*see);
+      g.lastSeen = {x:p.x, y:p.y};
+      if (g.susp >= 1 && g.state !== 'chase'){ g.state='chase'; sfx.alarm(); setMsg('被发现了！快跑！', 1.6); S.flash=0.4; S.shake=10; }
+    } else {
+      g.susp = Math.max(0, g.susp - dt*0.3);
+      if (g.state==='chase' && g.susp <= 0.05){ g.state='patrol'; }
+    }
+    if (g.state==='chase'){
+      const ta = Math.atan2(p.y-g.y, p.x-g.x);
+      g.ang = lerpAng(g.ang, ta, Math.min(1, dt*5));
+      g.x += Math.cos(g.ang)*g.speed*1.5*dt; g.y += Math.sin(g.ang)*g.speed*1.5*dt;
+    }
+  } else {
+    const see = canSee(g, p.sneak);
+    if (see > 0){
+      g.susp = Math.min(1.2, g.susp + dt*see*(g.state==='chase'?2:1));
+      g.lastSeen = {x:p.x, y:p.y};
+      if (g.susp >= 1 && g.state !== 'chase'){
+        g.state = 'chase'; sfx.alarm(); setMsg('被发现了！快跑！', 1.6);
+        S.flash = 0.4; S.shake = 10;
+        if (g.trait==='charge'){
+          g.pauseT = 0.55; S.shake = 14; sfx.growl();
+          traitShout(g, '熊在咆哮——它要冲过来了！');
+        }
+      }
+    } else {
+      g.susp = Math.max(0, g.susp - dt*(g.state==='chase'?0.12:(g.trait==='slow'?0.5:0.3)));
+      if (g.state==='chase' && g.susp <= 0.05){ g.state='investigate'; g.waitT=4; }
+    }
+    if (g.state==='patrol'){
+      if (g.trait==='dart'){
+        g.dartCd -= dt;
+        if (g.dartCd <= 0 && !g.dart){
+          const m = ROOM.t+40;
+          g.dart = { x: clamp(g.x + (Math.random()-0.5)*520, ROOM.x+m, ROOM.x+ROOM.w-m),
+                     y: clamp(g.y + (Math.random()-0.5)*520, ROOM.y+m, ROOM.y+ROOM.h-m), t: 0.8 };
+          g.dartCd = 1.2 + Math.random()*1.4;
+          traitShout(g, '猴子开始上蹿下跳了！');
+        }
+        if (g.dart){
+          g.dart.t -= dt;
+          const ta = Math.atan2(g.dart.y-g.y, g.dart.x-g.x);
+          g.ang = lerpAng(g.ang, ta, Math.min(1, dt*10));
+          const [gx,gy] = collide(g.x + Math.cos(g.ang)*g.speed*2.6*dt, g.y + Math.sin(g.ang)*g.speed*2.6*dt, 16);
+          g.x = gx; g.y = gy;
+          if (g.dart.t <= 0 || dist(g.x,g.y,g.dart.x,g.dart.y) < 20) g.dart = null;
+          if (dist(g.x,g.y,p.x,p.y) < 26) caught();
+          return;
+        }
+      }
+      if (g.trait==='sniff'){
+        g.sniffCd -= dt;
+        if (g.sniffCd <= 0 && g.state==='patrol'){
+          g.sniffCd = 1.8 + Math.random()*1.4;
+          let best = null;
+          for (const pt of S.trail){
+            if (S.t - pt.t > 0.8 && dist(g.x,g.y,pt.x,pt.y) < 450){ best = pt; break; }
+          }
+          if (best){ g.lastSeen = {x:best.x, y:best.y}; g.state='investigate'; g.waitT=3.5; g.rushT=2; g.susp=Math.max(g.susp,0.4);
+            sfx.snort(); traitShout(g, '双翼兽嗅到了你的足迹，追了上来…'); }
+        }
+      }
+      if (g.pauseT > 0){ g.pauseT -= dt; g.ang += dt*4.5; return; }
+      if (g.trait==='scan' && g.pauseT <= 0){
+        const wp = g.path[g.wp];
+        if (wp && dist(g.x,g.y,wp[0],wp[1]) < 8 && !g.pausedHere){
+          g.pauseT = 3.0; g.pausedHere = true;
+          sfx.ask(); traitShout(g, '守卫停了下来，环视四周…');
+        }
+      }
+      const tx = g.path[g.wp][0], ty = g.path[g.wp][1];
+      const d = dist(g.x,g.y,tx,ty);
+      if (d < 8){
+        if (g.pausedHere){ g.pausedHere = false; g.wp = (g.wp+1)%g.path.length; g.stuckT=0; }
+        else g.wp = (g.wp+1)%g.path.length;
+      } else {
+        const ox = g.x, oy = g.y;
+        const ta = Math.atan2(ty-g.y, tx-g.x);
+        g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
+        g.x += Math.cos(g.ang)*g.speed*dt; g.y += Math.sin(g.ang)*g.speed*dt;
+        const [gx,gy] = collide(g.x, g.y, 16);
+        if (dist(ox,oy,gx,gy) < g.speed*dt*0.3){ g.stuckT = (g.stuckT||0)+dt;
+          if (g.stuckT > 1.2){ g.wp = (g.wp+1)%g.path.length; g.stuckT = 0; } }
+        else g.stuckT = 0;
+        g.x = gx; g.y = gy;
+      }
+    } else if (g.state==='investigate'){
+      if (g.lastSeen){
+        const d = dist(g.x,g.y,g.lastSeen.x,g.lastSeen.y);
+        if (d > 10){
+          const ta = Math.atan2(g.lastSeen.y-g.y, g.lastSeen.x-g.x);
+          g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
+          const rs = g.speed * (g.rushT > 0 ? 2.0 : 1.35);
+          g.x += Math.cos(g.ang)*rs*dt; g.y += Math.sin(g.ang)*rs*dt;
+        } else { g.lastSeen = null; }
+      } else {
+        g.waitT -= dt;
+        g.ang += dt*1.2;
+        if (g.waitT <= 0){ g.state='patrol'; g.susp=0; }
+      }
+    } else if (g.state==='chase'){
+      if (g.pauseT > 0){ g.pauseT -= dt; return; }
+      const tx = g.lastSeen ? g.lastSeen.x : p.x, ty = g.lastSeen ? g.lastSeen.y : p.y;
+      const ta = Math.atan2(ty-g.y, tx-g.x);
+      g.ang = lerpAng(g.ang, ta, Math.min(1, dt*8));
+      const cs = g.speed * (g.trait==='charge' ? 2.9 : 1.6);
+      g.x += Math.cos(g.ang)*cs*dt; g.y += Math.sin(g.ang)*cs*dt;
+    }
+    const [nx,ny] = collide(g.x, g.y, 16);
+    g.x = nx; g.y = ny;
+  }
+  if ((g.state==='chase' || g.fixed) && dist(g.x,g.y,p.x,p.y) < 26 && S.mode==='play'){ caught(); }
+}
+
+/* ---------------- 路人 ---------------- */
+function npcUpdate(n, dt){
+  n.alertT = Math.max(0, n.alertT - dt);
+  const p = S.player;
+  const d = dist(n.x,n.y,p.x,p.y);
+  if (d < 150 && !losBlocked(n.x,n.y,p.x,p.y)){
+    if (!p.sneak && n.alertT <= 0){
+      n.alertT = 6; sfx.alarm(); setMsg('路人发现了你，守卫正赶来！', 2);
+      guardAlert(p.x, p.y);
+    }
+  }
+  if (n.waitT > 0){ n.waitT -= dt; n.moving = false; n.stuck = 0; return; }
+  const dd = dist(n.x,n.y,n.tx,n.ty);
+  if (dd < 8){ n.waitT = 1 + Math.random()*2.5; n.stuck = 0;
+    n.tx = n.box[0] + 10 + Math.random()*(n.box[2]-20);
+    n.ty = n.box[1] + 10 + Math.random()*(n.box[3]-20);
+    if (losBlocked(n.x,n.y,n.tx,n.ty)){ n.tx = n.x; n.ty = n.y; }
+  } else {
+    n.moving = true;
+    const ta = Math.atan2(n.ty-n.y, n.tx-n.x);
+    n.ang = ta;
+    n.x += Math.cos(ta)*60*dt; n.y += Math.sin(ta)*60*dt;
+    const [nx,ny] = collide(n.x, n.y, 10);
+    if (dist(nx,ny,n.x,n.y) > 0.5) n.stuck = (n.stuck||0) + dt; else n.stuck = 0;
+    n.x = nx; n.y = ny;
+    if ((n.stuck||0) > 1){ n.waitT = 0.5 + Math.random();
+      n.tx = n.box[0] + 10 + Math.random()*(n.box[2]-20);
+      n.ty = n.box[1] + 10 + Math.random()*(n.box[3]-20);
+      if (losBlocked(n.x,n.y,n.tx,n.ty)){ n.tx = n.x; n.ty = n.y; }
+    }
+  }
+}
+
+/* ---------------- 玩家 ---------------- */
+function playerUpdate(dt){
+  const p = S.player;
+  const [dx,dy] = ax();
+  p.sneak = !!(keys['shift']);
+  const sp = p.sneak ? SNEAK : SPD;
+  p.moving = !!(dx||dy);
+  if (p.moving){
+    if (dx < 0) p.faceDir = -1; else if (dx > 0) p.faceDir = 1;
+    p.ang = lerpAng(p.ang, Math.atan2(dy,dx), Math.min(1, dt*10));
+    p.x += dx*sp*dt; p.y += dy*sp*dt;
+    p.anim += dt*(p.sneak?6:11);
+    p.stepT -= dt;
+    if (p.stepT <= 0 && !p.sneak){ sfx.step(); p.stepT = 0.26; }
+    const [nx,ny] = collide(p.x,p.y,13);
+    p.x = nx; p.y = ny;
+  }
+  S.trailT -= dt;
+  if (S.trailT <= 0){ S.trail.push({x:p.x, y:p.y, t:S.t}); if (S.trail.length > 60) S.trail.shift(); S.trailT = 0.25; }
+
+  // ===== 交互：偷窃 / 唱机 / 台灯 =====
+  const holding = !!keys[' '];
+  let best = null, bestD = 1e9;
+  for (const t of S.treasures){
+    if (t.got) continue;
+    const d = dist(p.x,p.y,t.x,t.y);
+    if (d < 52 && d < bestD){ best = {type:'tre', t, d}; bestD = d; }
+  }
+  for (const gd of S.gadgets){
+    const d = dist(p.x,p.y,gd.x,gd.y);
+    if (d < 52 && gd.cd <= 0 && d < bestD + 30){ best = {type:'gad', gd, d}; bestD = d; }
+  }
+  for (const lp of S.lamps){
+    const d = dist(p.x,p.y,lp.x,lp.y);
+    if (d < 52 && d < bestD + 10){ best = {type:'lamp', lp, d}; bestD = d; }
+  }
+  S.interact = null;
+  if (best && best.type==='tre'){
+    const t = best.t;
+    S.interact = {kind:'steal', t};
+    if (holding){
+      t.stealT += dt;
+      if ((t.stealT*10|0) !== (((t.stealT-dt)*10)|0)) sfx.crack();
+      for (const g of S.guards){
+        if (g.fixed || g.state==='chase') continue;
+        const d = dist(g.x,g.y,p.x,p.y);
+        if (d < 300){
+          g.susp = Math.min(1.15, g.susp + dt*0.4*(1 - d/300));
+          g.lastSeen = {x:p.x, y:p.y};
+          if (g.susp >= 1 && g.state !== 'chase'){
+            g.state = 'investigate'; g.waitT = 5; g.rushT = 3; g.susp = 0.9;
+            setMsg('有守卫听到了动静！', 1.5);
+          }
+        }
+      }
+      if (t.stealT >= t.need){
+        t.got = true; t.stealT = 0; S.score += T_VAL[t.type]; sfx.pick();
+        const left = S.treasures.filter(t=>!t.got).length;
+        setMsg('+' + T_VAL[t.type] + '　' + T_NAME[t.type] + (left ? '　还差 ' + left + ' 件' : ''), 1.4);
+        if (left === 0){
+          S.exitOpen = true; sfx.door(); setMsg('全部得手！出口打开了 —— 快撤！', 3);
+        }
+      }
+    } else {
+      t.stealT = Math.max(0, t.stealT - dt*2.5);
+    }
+  } else if (best && best.type==='gad'){
+    const gd = best.gd;
+    S.interact = {kind:'gad', gd};
+    if (S.spaceEdge){
+      gd.cd = 10; gd.ripple = 0.7;
+      sfx.radio();
+      setMsg('唱机响了 —— 守卫正赶去查看（看小地图）！', 2.2);
+      for (const g of S.guards){
+        if (g.fixed || g.state==='chase') continue;
+        g.lastSeen = {x:gd.x, y:gd.y};
+        g.state = 'investigate'; g.waitT = 6; g.rushT = 3.5; g.susp = Math.max(g.susp, 0.5);
+      }
+    }
+  } else if (best && best.type==='lamp'){
+    const lp = best.lp;
+    S.interact = {kind:'lamp', lp};
+    if (S.spaceEdge){
+      lp.on = !lp.on; sfx.lamp();
+      if (lp.on){
+        setMsg('台灯亮了 —— 光亮也暴露了你的位置！', 2.2);
+        for (const g of S.guards){
+          if (!g.fixed && g.state!=='chase'){
+            g.lastSeen = {x:lp.x, y:lp.y}; g.state='investigate'; g.waitT=6; g.rushT=2.5; g.susp=Math.max(g.susp,0.5);
+          }
+        }
+      } else setMsg('台灯关了', 1);
+    }
+  }
+  S.spaceEdge = false;
+  // 光照暴露：站在光圈/亮着的台灯下会被直接暴露，守卫直奔而来
+  const exposed = inLight(p.x, p.y);
+  if (exposed){
+    if (!p.wasExposed){
+      sfx.alarm(); setMsg('光照到了你 —— 守卫直奔而来！', 2);
+      for (const g of S.guards){
+        if (!g.fixed){
+          g.susp = Math.min(1.1, g.susp + 0.8);
+          g.lastSeen = {x:p.x, y:p.y};
+          if (g.state !== 'chase'){ g.state='investigate'; g.waitT=6; g.rushT=3; }
+        }
+      }
+      S.exposeT = 1.2;
+    } else {
+      S.exposeT -= dt;
+      if (S.exposeT <= 0){ S.exposeT = 1.2; guardAlert(p.x, p.y); }
+    }
+  } else { S.exposeT = 0; }
+  p.wasExposed = exposed;
+  // 出口
+  const e = S.level.exit;
+  const left = S.treasures.filter(t=>!t.got).length;
+  if (p.x > e.x - 30 && p.x < e.x + e.w + 30 && p.y > ROOM.y + ROOM.h - 46){
+    if (S.exitOpen){ if (S.mode==='play') levelClear(); }
+    else if (S.msgT <= 0){ setMsg('大门锁着 —— 还差 ' + left + ' 件宝物', 1.6); }
+  }
+}
+const T_VAL = {coin:30, gem:50, vase:40, crown:100, pic:80};
+const T_NAME = {coin:'一袋金币', gem:'黑钻', vase:'古董花瓶', crown:'王冠', pic:'名画'};
+
+/* ---------------- 流程 ---------------- */
+function caught(){
+  S.mode = 'caught'; sfx.caught(); S.lives--;
+  S.shake = 12;
+  if (S.lives < 0){ S.mode = 'gameover'; }
+}
+function levelClear(){
+  S.mode = 'clear'; sfx.win();
+  if (S.lvIndex >= LEVELS.length-1){
+    S.mode = 'win';
+    if (S.score > S.best){ S.best = S.score; localStorage.setItem('burglar_best', S.best); }
+  }
+}
+function onKey(k){
+  if (S.mode==='loading') return;
+  if (k==='m'){ muted = !muted; setMsg(muted?'已静音':'声音开启',1); }
+  if (k==='p' && (S.mode==='play')){ S.paused = !S.paused; sfx.ui(); }
+  if (S.mode==='title'){
+    if (k===' '){ S.score=0; S.lives=3; buildLevel(0); sfx.ui(); }
+    if (k>='1' && k<='5'){ S.score=0; S.lives=3; buildLevel(parseInt(k,10)-1); sfx.ui(); }
+  } else if (S.mode==='play'){
+    if (k==='r'){ S.score = S.lvStartScore; buildLevel(S.lvIndex); sfx.ui(); }
+    if (k===' ') S.spaceEdge = true;
+    if (k==='g'){ S.treasures.forEach(t=>t.got=true); S.exitOpen=true; sfx.door(); setMsg('出口打开了',1.5); }
+  } else if (S.mode==='clear'){
+    if (k===' '){ buildLevel(S.lvIndex+1); sfx.ui(); }
+  } else if (S.mode==='caught'){
+    if (k===' '){ S.score = S.lvStartScore; buildLevel(S.lvIndex); }
+  } else if (S.mode==='gameover' || S.mode==='win'){
+    if (k===' '){ S.mode='title'; }
+  }
+}
+
+/* ================= 等距渲染 ================= */
+const noise = document.createElement('canvas');
+const coneCv = document.createElement('canvas');
+const sceneCv = document.createElement('canvas');
+const fogCv = document.createElement('canvas');
+const vigCv = document.createElement('canvas');
+function buildVig(){
+  vigCv.width = W; vigCv.height = H;
+  const g = vigCv.getContext('2d');
+  const rg = g.createRadialGradient(W/2, H/2+10, Math.min(W,H)*0.28, W/2, H/2+10, Math.max(W,H)*0.72);
+  rg.addColorStop(0,'rgba(0,0,0,0)'); rg.addColorStop(1,'rgba(0,0,0,1)');
+  g.fillStyle = rg; g.fillRect(0,0,W,H);
+}
+noise.width = 480; noise.height = 320;
+(()=>{ const g = noise.getContext('2d');
+  for (let i=0;i<2200;i++){
+    g.fillStyle = Math.random()<0.85 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.09)';
+    g.fillRect(Math.random()*480, Math.random()*320, 1, 1);
+  }
+})();
+const coneG = coneCv.getContext('2d');
+const sceneG = sceneCv.getContext('2d');
+const fogG = fogCv.getContext('2d');
+const staticCv = document.createElement('canvas');
+
+// 全屏自适应
+function fit(){
+  W = cv.width = Math.max(320, Math.min(window.innerWidth, 1920));
+  H = cv.height = Math.max(240, Math.min(window.innerHeight, 1200));
+  ISO.OX = W/2; ISO.OY = H/2 + 24;
+  coneCv.width = W; coneCv.height = H;
+  sceneCv.width = W; sceneCv.height = H;
+  fogCv.width = W; fogCv.height = H;
+  buildVig();
+}
+addEventListener('resize', fit);
+
+const ISO = { kx: 0.42, ky: 0.34, OX: W/2, OY: H/2 + 24 };
+function proj(x, y){
+  return { x: ISO.OX + ((x - y) - S.cam.u) * ISO.kx,
+           y: ISO.OY + ((x + y) - S.cam.v) * ISO.ky };
+}
+const H_WALL = 26, H_LOW = 12, H_TALL = 20;
+const MAT_WALL = { top:'#232323', south:'#0f0f0f', east:'#060606' };
+const MAT_FURN  = { top:'#2e2e2e', south:'#181818', east:'#0b0b0b' };
+
+function diamondPath(g, x, y, w, h){
+  const A=proj(x,y), B=proj(x+w,y), C=proj(x+w,y+h), D=proj(x,y+h);
+  g.beginPath(); g.moveTo(A.x,A.y); g.lineTo(B.x,B.y); g.lineTo(C.x,C.y); g.lineTo(D.x,D.y); g.closePath();
+}
+function drawBox(g, x, y, w, h, H2, mat, alpha){
+  const A=proj(x,y), B=proj(x+w,y), C=proj(x+w,y+h), D=proj(x,y+h);
+  g.save();
+  if (alpha < 1) g.globalAlpha = alpha;
+  g.fillStyle = mat.east;
+  g.beginPath(); g.moveTo(B.x,B.y-H2); g.lineTo(C.x,C.y-H2); g.lineTo(C.x,C.y); g.lineTo(B.x,B.y); g.closePath(); g.fill();
+  g.fillStyle = mat.south;
+  g.beginPath(); g.moveTo(D.x,D.y-H2); g.lineTo(C.x,C.y-H2); g.lineTo(C.x,C.y); g.lineTo(D.x,D.y); g.closePath(); g.fill();
+  g.fillStyle = mat.top;
+  g.beginPath(); g.moveTo(A.x,A.y-H2); g.lineTo(B.x,B.y-H2); g.lineTo(C.x,C.y-H2); g.lineTo(D.x,D.y-H2); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(A.x,A.y-H2); g.lineTo(B.x,B.y-H2); g.lineTo(C.x,C.y-H2); g.lineTo(D.x,D.y-H2); g.closePath(); g.stroke();
+  g.restore();
+}
+function buildStatic(){
+  const uMin = ROOM.x - (ROOM.y+ROOM.h), uMax = (ROOM.x+ROOM.w) - ROOM.y;
+  const vMin = ROOM.x + ROOM.y, vMax = (ROOM.x+ROOM.w) + (ROOM.y+ROOM.h);
+  const M = 80;
+  staticCv.width = Math.ceil((uMax-uMin)*ISO.kx) + M*2;
+  staticCv.height = Math.ceil((vMax-vMin)*ISO.ky) + M*2;
+  const g = staticCv.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0,0,staticCv.width,staticCv.height);
+  const P = (x,y)=>({ x:(x-y-uMin)*ISO.kx + M, y:(x+y-vMin)*ISO.ky + M });
+  const A=P(ROOM.x,ROOM.y), B=P(ROOM.x+ROOM.w,ROOM.y), C=P(ROOM.x+ROOM.w,ROOM.y+ROOM.h), D=P(ROOM.x,ROOM.y+ROOM.h);
+  g.fillStyle = '#161616';
+  g.beginPath(); g.moveTo(D.x,D.y); g.lineTo(C.x,C.y); g.lineTo(C.x,C.y+12); g.lineTo(D.x,D.y+12); g.closePath(); g.fill();
+  g.fillStyle = '#0a0a0a';
+  g.beginPath(); g.moveTo(B.x,B.y); g.lineTo(C.x,C.y); g.lineTo(C.x,C.y+12); g.lineTo(B.x,B.y+12); g.closePath(); g.fill();
+  g.fillStyle = '#0d0d0d';
+  g.beginPath(); g.moveTo(A.x,A.y); g.lineTo(B.x,B.y); g.lineTo(C.x,C.y); g.lineTo(D.x,D.y); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(A.x,A.y); g.lineTo(B.x,B.y); g.lineTo(C.x,C.y); g.lineTo(D.x,D.y); g.closePath(); g.stroke();
+  g.strokeStyle = S.level.dark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.06)'; g.lineWidth = 1;
+  for (let x = ROOM.x+90; x < ROOM.x+ROOM.w; x += 90){
+    const p1=P(x,ROOM.y), p2=P(x,ROOM.y+ROOM.h);
+    g.beginPath(); g.moveTo(p1.x,p1.y); g.lineTo(p2.x,p2.y); g.stroke();
+  }
+  for (let y = ROOM.y+90; y < ROOM.y+ROOM.h; y += 90){
+    const p1=P(ROOM.x,y), p2=P(ROOM.x+ROOM.w,y);
+    g.beginPath(); g.moveTo(p1.x,p1.y); g.lineTo(p2.x,p2.y); g.stroke();
+  }
+  for (const s of (S.level.shadows||[])){
+    const sA=P(s[0],s[1]), sB=P(s[0]+s[2],s[1]), sC=P(s[0]+s[2],s[1]+s[3]), sD=P(s[0],s[1]+s[3]);
+    g.fillStyle = '#000';
+    g.beginPath(); g.moveTo(sA.x,sA.y); g.lineTo(sB.x,sB.y); g.lineTo(sC.x,sC.y); g.lineTo(sD.x,sD.y); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1; g.setLineDash([5,5]);
+    g.beginPath(); g.moveTo(sA.x,sA.y); g.lineTo(sB.x,sB.y); g.lineTo(sC.x,sC.y); g.lineTo(sD.x,sD.y); g.closePath(); g.stroke();
+    g.setLineDash([]);
+  }
+  staticCv._M = M; staticCv._uMin = uMin; staticCv._vMin = vMin;
+}
+
+function updateCamera(dt){
+  const p = S.player;
+  const halfU = (W/2 - 40)/ISO.kx, halfV = (H/2 - 100)/ISO.ky;
+  const uMin = ROOM.x - (ROOM.y+ROOM.h), uMax = (ROOM.x+ROOM.w) - ROOM.y;
+  const vMin = ROOM.x + ROOM.y, vMax = (ROOM.x+ROOM.w) + (ROOM.y+ROOM.h);
+  let tu = p.x - p.y, tv = p.x + p.y - 70;
+  tu = (uMax-uMin < 2*halfU) ? (uMin+uMax)/2 : clamp(tu, uMin+halfU, uMax-halfU);
+  tv = (vMax-vMin < 2*halfV) ? (vMin+vMax)/2 - 60 : clamp(tv, vMin+halfV, vMax-halfV);
+  if (!S.cam.init){ S.cam.u = tu; S.cam.v = tv; S.cam.init = true; }
+  else { S.cam.u += (tu-S.cam.u)*Math.min(1, dt*5); S.cam.v += (tv-S.cam.v)*Math.min(1, dt*5); }
+}
+
+function conePath(g, gd, R){
+  if (g.fov >= 6.0){
+    const O = proj(gd.x, gd.y);
+    g.beginPath(); g.arc(O.x, O.y, R*ISO.kx*1.35, 0, TAU);
+    return;
+  }
+  g.beginPath();
+  const O = proj(gd.x, gd.y); g.moveTo(O.x, O.y);
+  const N = 24;
+  for (let i=0;i<=N;i++){
+    const a = gd.ang - gd.fov/2 + (gd.fov*i)/N;
+    const p = proj(gd.x + Math.cos(a)*R, gd.y + Math.sin(a)*R);
+    g.lineTo(p.x, p.y);
+  }
+  g.closePath();
+}
+function drawCones(g){
+  for (const gd of S.guards){
+    const vp = visParams(gd);
+    const R = vp.R;
+    const ghost = gd.trait==='ghost' || gd.trait==='phase';
+    const wob = gd.trait==='triple' ? Math.sin(S.t*0.6)*0.3 : 0;   // 三首缓慢摆动
+    const coneList = gd.trait==='triple' ? [gd.ang+wob, gd.ang+0.62+wob, gd.ang-0.62+wob] : [gd.ang];
+    const fovSave = gd.ang;
+    coneG.save(); coneG.setTransform(1,0,0,1,0,0); coneG.clearRect(0,0,W,H);
+    coneG.fillStyle = '#fff';
+    for (const a of coneList){ gd.ang = a; conePath(coneG, gd, R*(gd.trait==='triple'?0.88:1)); coneG.fill(); }
+    if (gd.state==='chase'){
+      coneG.save();
+      gd.ang = coneList[0];
+      conePath(coneG, gd, R); coneG.clip();
+      coneG.strokeStyle = 'rgba(255,255,255,0.55)'; coneG.lineWidth = 1.5;
+      coneG.beginPath();
+      for (let x = -200; x < W+200; x += 10){ coneG.moveTo(x, 0); coneG.lineTo(x+H, H); }
+      coneG.stroke();
+      coneG.restore();
+    }
+    gd.ang = fovSave;
+    // 环视余辉：猫停下环视时，扫过的地方留下渐隐光带
+    if (gd.trait==='scan' && gd.pauseT > 0){
+      for (let k=1;k<=3;k++){
+        gd.ang = fovSave - k*0.32;
+        g.save(); g.globalAlpha = 0.09*(4-k)/2;
+        conePath(g, gd, R); g.fillStyle = '#fff'; g.fill();
+        g.restore();
+      }
+      gd.ang = fovSave;
+    }
+    if (!ghost){
+      coneG.globalCompositeOperation = 'destination-out';
+      for (const w of S.level.walls){
+        const A=proj(w[0],w[1]), B=proj(w[0]+w[2],w[1]), C=proj(w[0]+w[2],w[1]+w[3]), D=proj(w[0],w[1]+w[3]);
+        coneG.beginPath(); coneG.moveTo(A.x,A.y); coneG.lineTo(B.x,B.y); coneG.lineTo(C.x,C.y); coneG.lineTo(D.x,D.y); coneG.closePath(); coneG.fill();
+      }
+      coneG.globalCompositeOperation = 'source-over';
+    }
+    coneG.restore();
+    const flicker = 0.9 + 0.1*Math.sin(S.t*13 + gd.x*0.05);
+    const alpha = (gd.state==='chase' ? 0.30 : (gd.lanceFlash ? 0.34 : 0.15)) * flicker;
+    g.save(); g.globalAlpha = alpha; g.drawImage(coneCv, 0, 0); g.restore();
+    const O = proj(gd.x, gd.y);
+    g.fillStyle = `rgba(255,255,255,${0.25*flicker})`;
+    g.beginPath(); g.arc(O.x, O.y-26, 3.5, 0, TAU); g.fill();
+    if (gd.lanceFlash){
+      g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 2; g.setLineDash([4,4]);
+      conePath(g, gd, R*2.1); g.stroke(); g.setLineDash([]);
+    }
+  }
+}
+function drawSight(g, gd){
+  const a = proj(gd.x, gd.y), b = proj(S.player.x, S.player.y);
+  g.strokeStyle = `rgba(255,255,255,${0.25 + 0.5*gd.susp})`;
+  g.setLineDash([6,6]); g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(a.x, a.y-32); g.lineTo(b.x, b.y-14); g.stroke();
+  g.setLineDash([]);
+}
+
+function drawTreasure(g, t){
+  if (t.got) return;
+  const bob = Math.sin(S.t*2.4 + t.ph)*2.5;
+  const P = proj(t.x, t.y);
+  g.fillStyle = 'rgba(255,255,255,0.08)';
+  g.beginPath(); g.ellipse(P.x, P.y, 17, 7, 0, 0, TAU); g.fill();
+  g.save(); g.translate(P.x, P.y - 6 + bob);
+  g.lineWidth = 2; g.strokeStyle = '#fff'; g.fillStyle = '#050505';
+  if (t.type==='coin'){
+    g.beginPath(); g.arc(0,0,11,0,TAU); g.fill(); g.stroke();
+    g.beginPath(); g.arc(0,0,6.5,0,TAU); g.stroke();
+    g.fillStyle='#fff'; g.font='900 9px Georgia'; g.textAlign='center'; g.fillText('¥',0,3.2);
+  } else if (t.type==='gem'){
+    g.beginPath(); g.moveTo(0,-13); g.lineTo(10,-3); g.lineTo(0,13); g.lineTo(-10,-3); g.closePath();
+    g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(0,-13); g.lineTo(0,13); g.moveTo(-10,-3); g.lineTo(10,-3); g.stroke();
+  } else if (t.type==='crown'){
+    g.beginPath(); g.moveTo(-13,8); g.lineTo(-13,-6); g.lineTo(-6,1); g.lineTo(0,-11);
+    g.lineTo(6,1); g.lineTo(13,-6); g.lineTo(13,8); g.closePath(); g.fill(); g.stroke();
+  } else if (t.type==='vase'){
+    g.beginPath(); g.moveTo(-5,-12); g.quadraticCurveTo(-14,2,-7,11); g.lineTo(7,11);
+    g.quadraticCurveTo(14,2,5,-12); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(-5,-12); g.lineTo(5,-12); g.stroke();
+  } else if (t.type==='pic'){
+    g.fillRect(-14,-11,28,22); g.strokeRect(-14,-11,28,22);
+    g.beginPath(); g.moveTo(-9,6); g.lineTo(-1,-5); g.lineTo(4,1); g.lineTo(9,-6); g.stroke();
+  }
+  const tw = (Math.sin(S.t*4 + t.ph)+1)/2;
+  g.strokeStyle = `rgba(255,255,255,${0.4+0.5*tw})`; g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(14,-14); g.lineTo(14,-8); g.moveTo(11,-11); g.lineTo(17,-11); g.stroke();
+  g.restore();
+  const near = dist(t.x,t.y,S.player.x,S.player.y) < 52;
+  if (near && !(S.interact && S.interact.t===t && keys[' '])){
+    g.fillStyle = '#fff'; g.font = '700 12px Georgia'; g.textAlign = 'center';
+    g.fillText('按住空格 偷取', P.x, P.y - 34);
+  }
+  if (t.stealT > 0){
+    const pr = t.stealT / t.need;
+    g.strokeStyle = '#fff'; g.lineWidth = 3;
+    g.beginPath(); g.ellipse(P.x, P.y, 22, 10, 0, -Math.PI/2, -Math.PI/2 + pr*TAU); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = 1;
+    g.beginPath(); g.ellipse(P.x, P.y, 22, 10, 0, 0, TAU); g.stroke();
+  }
+}
+
+function drawGadget(g, gd){
+  const P = proj(gd.x, gd.y);
+  const ready = gd.cd <= 0;
+  g.save(); g.globalAlpha = ready ? 1 : 0.35;
+  g.strokeStyle = '#fff'; g.lineWidth = 2; g.fillStyle = '#050505';
+  g.fillRect(P.x-9, P.y-16, 18, 14); g.strokeRect(P.x-9, P.y-16, 18, 14);
+  g.beginPath(); g.moveTo(P.x+9, P.y-16); g.lineTo(P.x+15, P.y-26); g.stroke();
+  g.beginPath(); g.arc(P.x+15, P.y-26, 2, 0, TAU); g.fillStyle = '#fff'; g.fill();
+  g.restore();
+  if (gd.ripple > 0){
+    gd.ripple -= 0.016;
+    const r = (0.7-gd.ripple)/0.7;
+    g.strokeStyle = `rgba(255,255,255,${0.6*(1-r)})`; g.lineWidth = 2;
+    g.beginPath(); g.ellipse(P.x, P.y, 20+r*160, (20+r*160)*0.42, 0, 0, TAU); g.stroke();
+  }
+  const near = dist(gd.x,gd.y,S.player.x,S.player.y) < 52;
+  if (near && ready && !(S.interact && S.interact.kind==='gad')){
+    g.fillStyle = '#fff'; g.font = '700 12px Georgia'; g.textAlign = 'center';
+    g.fillText('按空格 · 声东击西', P.x, P.y - 36);
+  }
+  if (gd.cd > 0){
+    g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 2;
+    g.beginPath(); g.ellipse(P.x, P.y, 18, 8, 0, -Math.PI/2, -Math.PI/2 + (1-gd.cd/10)*TAU); g.stroke();
+  }
+}
+
+function drawLamp(g, lp){
+  const P = proj(lp.x, lp.y);
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.beginPath(); g.ellipse(P.x, P.y+2, 10, 4.5, 0, 0, TAU); g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 2.5;
+  g.beginPath(); g.moveTo(P.x, P.y); g.lineTo(P.x, P.y-40); g.stroke();     // 灯杆
+  g.fillStyle = lp.on ? '#fff' : '#1c1c1c';
+  g.beginPath(); g.moveTo(P.x-13, P.y-40); g.lineTo(P.x+13, P.y-40); g.lineTo(P.x+8, P.y-56); g.lineTo(P.x-8, P.y-56); g.closePath();
+  g.fill(); if (!lp.on){ g.strokeStyle = 'rgba(255,255,255,0.6)'; g.lineWidth = 1.5; g.stroke(); }
+  if (lp.on){
+    const fl = 0.85 + 0.15*Math.sin(S.t*11 + lp.x);
+    g.fillStyle = `rgba(255,255,255,${0.5*fl})`;
+    g.beginPath(); g.ellipse(P.x, P.y-46, 8, 5, 0, 0, TAU); g.fill();
+  }
+  const near = dist(lp.x,lp.y,S.player.x,S.player.y) < 52;
+  if (near && !(S.interact && S.interact.kind==='lamp')){
+    g.fillStyle = '#fff'; g.font = '700 12px Georgia'; g.textAlign = 'center';
+    g.fillText(lp.on ? '按空格 · 关灯' : '按空格 · 开灯', P.x, P.y - 66);
+  }
+}
+
+function drawExitDoor(g){
+  const e = S.level.exit;
+  const cx = e.x + e.w/2, cy = ROOM.y + ROOM.h - 8;
+  const P = proj(cx, cy);
+  if (S.exitOpen){
+    const pulse = 0.8 + 0.2*Math.sin(S.t*5);
+    g.fillStyle = `rgba(255,255,255,${0.75+0.2*pulse})`;
+    g.fillRect(P.x-40, P.y-48, 80, 48);
+    g.fillStyle = '#000'; g.font='900 16px Georgia'; g.textAlign='center';
+    g.fillText('EXIT ▼', P.x, P.y - 18);
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(P.x-42, P.y-50, 84, 52);
+  } else {
+    g.fillStyle = '#141414';
+    g.fillRect(P.x-40, P.y-48, 80, 48);
+    g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 2; g.strokeRect(P.x-42, P.y-50, 84, 52);
+    g.strokeStyle = '#fff';
+    g.strokeRect(P.x-8, P.y-34, 16, 12);
+    g.beginPath(); g.arc(P.x, P.y-34, 5, Math.PI, 0); g.stroke();
+  }
+}
+
+function drawGuard(g, gd){
+  const im = rimOf(gd.img);
+  const hgt = gd.img==='mob_face' ? 74 : 62;
+  const wid = (im.width-10)/im.height*hgt;
+  const P = proj(gd.x, gd.y);
+  g.fillStyle = 'rgba(255,255,255,0.07)';
+  g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.3, 7, 0, 0, TAU); g.fill();
+  const chase = gd.state==='chase';
+  const pulse = chase ? 1+Math.sin(S.t*14)*0.05 : 1;
+  g.save(); g.translate(P.x, P.y);
+  const flip = Math.cos(gd.ang) < 0 ? -1 : 1;
+  g.scale(pulse*flip, pulse);
+  g.drawImage(im, -wid/2, -hgt+8, wid, hgt);
+  g.restore();
+  if (gd.pauseT > 0 && gd.trait==='charge'){
+    const r = (0.55-gd.pauseT)/0.55;
+    g.strokeStyle = `rgba(255,255,255,${0.7*(1-r)})`; g.lineWidth = 2.5;
+    g.beginPath(); g.ellipse(P.x, P.y, 20+r*90, (20+r*90)*0.42, 0, 0, TAU); g.stroke();
+  }
+  if (gd.susp > 0.05 && gd.state!=='chase'){
+    g.fillStyle = '#fff';
+    g.fillRect(P.x-16, P.y-hgt-8, 32*clamp(gd.susp,0,1), 4);
+    g.lineWidth = 1.2; g.strokeStyle = '#fff'; g.strokeRect(P.x-16, P.y-hgt-8, 32, 4);
+    g.fillStyle = '#fff'; g.font='900 14px Georgia'; g.textAlign='center';
+    g.fillText('?', P.x, P.y-hgt-13);
+  }
+  if (chase){
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(P.x, P.y-hgt-14, 10, 0, TAU); g.fill();
+    g.fillStyle = '#000'; g.font='900 15px Georgia'; g.textAlign='center'; g.fillText('!', P.x, P.y-hgt-9);
+  }
+}
+
+function drawNpc(g, n){
+  const im = rimOf(n.img);
+  const hgt = 46, wid = (im.width-10)/im.height*hgt;
+  const P = proj(n.x, n.y);
+  g.fillStyle = 'rgba(255,255,255,0.05)';
+  g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.26, 5, 0, 0, TAU); g.fill();
+  g.save(); g.globalAlpha = 0.55;
+  if (n.moving) g.translate(0, -Math.abs(Math.sin(S.t*8))*2);
+  const flip = Math.cos(n.ang) < 0 ? -1 : 1;
+  g.translate(P.x, P.y); g.scale(flip, 1);
+  g.drawImage(im, -wid/2, -hgt+8, wid, hgt);
+  g.restore();
+  if (n.alertT > 0 && n.alertT % 1 < 0.6){
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(P.x, P.y-hgt-4, 9, 0, TAU); g.fill();
+    g.fillStyle = '#000'; g.font='900 13px Georgia'; g.textAlign='center'; g.fillText('!', P.x, P.y-hgt+0.5);
+  }
+}
+
+function drawPlayer(g){
+  const p = S.player;
+  const im = rimOf('hero_spy');
+  const hgt = p.sneak ? 38 : 45;
+  const wid = (im.width-10)/im.height*hgt;
+  const P = proj(p.x, p.y);
+  const bob = p.moving ? Math.abs(Math.sin(p.anim))*3 : 0;
+  const a = 0.10 + 0.04*Math.sin(S.t*5);
+  g.fillStyle = `rgba(255,255,255,${a})`;
+  g.beginPath(); g.ellipse(P.x, P.y, 27, 12, 0, 0, TAU); g.fill();
+  g.fillStyle = 'rgba(0,0,0,0.5)';
+  g.beginPath(); g.ellipse(P.x, P.y, 13, 5.5, 0, 0, TAU); g.fill();
+  g.save(); g.translate(P.x, P.y - bob);
+  if (p.sneak) g.globalAlpha = 0.9;
+  const sc = p.sneak ? 0.88 : 1;
+  g.scale(p.faceDir*sc, sc);
+  g.drawImage(im, -wid/2, -hgt+2, wid, hgt);
+  g.restore();
+  if (p.sneak){
+    g.fillStyle = 'rgba(255,255,255,0.6)'; g.font='900 9px Georgia'; g.textAlign='center';
+    g.fillText('…', P.x, P.y-hgt-6);
+  }
+  if (S.interact && S.interact.kind==='steal' && keys[' ']){
+    const pr = (S.t*3)%1;
+    g.strokeStyle = `rgba(255,255,255,${0.5*(1-pr)})`; g.lineWidth = 1.5;
+    g.beginPath(); g.ellipse(P.x, P.y, 18+pr*46, (18+pr*46)*0.42, 0, 0, TAU); g.stroke();
+  }
+}
+
+function drawMinimap(g){
+  const mw = 210, mh = 140, mx = W - mw - 14, my = 14;
+  g.fillStyle = 'rgba(0,0,0,0.8)'; g.fillRect(mx, my, mw, mh);
+  g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1.5; g.strokeRect(mx, my, mw, mh);
+  const s = Math.min((mw-20)/ROOM.w, (mh-20)/ROOM.h);
+  const ox = mx + (mw - ROOM.w*s)/2, oy = my + (mh - ROOM.h*s)/2 + 6;
+  const X = x => ox + (x-ROOM.x)*s, Y = y => oy + (y-ROOM.y)*s;
+  g.strokeStyle = 'rgba(255,255,255,0.35)';
+  for (const w of S.level.walls){ g.strokeRect(X(w[0]), Y(w[1]), w[2]*s, w[3]*s); }
+  g.fillStyle = 'rgba(255,255,255,0.2)';
+  for (const sh of (S.level.shadows||[])) g.fillRect(X(sh[0]), Y(sh[1]), sh[2]*s, sh[3]*s);
+  for (const lp of S.lamps){
+    g.fillStyle = lp.on ? '#fff' : 'rgba(255,255,255,0.35)';
+    g.beginPath(); g.arc(X(lp.x), Y(lp.y), 2.2, 0, TAU); g.fill();
+  }
+  g.fillStyle = '#fff';
+  for (const t of S.treasures) if (!t.got){
+    const tw = 1.6 + (Math.sin(S.t*5 + t.ph)+1)*0.8;
+    g.beginPath(); g.arc(X(t.x), Y(t.y), tw, 0, TAU); g.fill();
+  }
+  for (const gd of S.gadgets){ g.fillRect(X(gd.x)-2, Y(gd.y)-2, 4, 4); }
+  const e = S.level.exit;
+  g.strokeStyle = S.exitOpen && S.blink%0.6<0.35 ? '#fff' : 'rgba(255,255,255,0.7)'; g.lineWidth = 2;
+  g.strokeRect(X(e.x)-3, Y(ROOM.y+ROOM.h-10)-2, e.w*s+6, 6);
+  for (const gd of S.guards){
+    g.fillStyle = gd.state==='chase' && S.blink%0.4<0.2 ? '#fff' : 'rgba(255,255,255,0.85)';
+    g.beginPath(); g.arc(X(gd.x), Y(gd.y), 3, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(X(gd.x), Y(gd.y));
+    g.lineTo(X(gd.x)+Math.cos(gd.ang)*8, Y(gd.y)+Math.sin(gd.ang)*8); g.stroke();
+  }
+  if (S.blink%0.8 < 0.5){
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(X(S.player.x), Y(S.player.y), 3.4, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 1;
+    g.beginPath(); g.arc(X(S.player.x), Y(S.player.y), 6, 0, TAU); g.stroke();
+  }
+  g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '700 10px "Courier New"'; g.textAlign = 'left';
+  g.fillText('MAP', mx+6, my+13);
+}
+
+function drawHUD(g){
+  g.fillStyle = 'rgba(0,0,0,0.82)'; g.fillRect(0,0,W,56);
+  g.strokeStyle = 'rgba(255,255,255,0.4)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0,56.5); g.lineTo(W,56.5); g.stroke();
+  g.fillStyle = '#fff';
+  g.font = '900 18px Georgia'; g.textAlign = 'left';
+  g.fillText('战利品', 18, 35);
+  g.font = '900 18px "Courier New"';
+  g.fillText('¥'+S.score, 96, 35);
+  const left = S.treasures.filter(t=>!t.got).length;
+  g.font = '700 14px "Courier New"';
+  g.fillText(left>0 ? '还差 '+left+' 件' : '得手！去EXIT', 190, 35);
+  g.font = '700 14px Georgia';
+  g.fillText(S.level ? S.level.name : '', 330, 35);
+  for (let i=0;i<3;i++){
+    const x = 520+i*32;
+    g.fillStyle = i < S.lives ? '#fff' : 'rgba(255,255,255,0.15)';
+    g.strokeStyle = '#fff'; g.lineWidth = 1.6;
+    g.beginPath(); g.ellipse(x,29,11,6.5,0,0,TAU); g.fill(); g.stroke();
+    g.beginPath(); g.ellipse(x,27,5.5,4.5,0,0,TAU); g.fill(); g.stroke();
+  }
+  g.font = '700 11px "Courier New"'; g.textAlign = 'right';
+  g.fillText(muted?'MUTED':'SOUND ON [M]', W - 250, 48);
+  g.textAlign = 'left';
+  if (S.exitOpen){ g.fillStyle='#fff'; g.font='900 13px Georgia';
+    g.fillText(S.blink%0.8<0.5 ? 'EXIT OPEN — RUN!' : '', 470, 16); }
+}
+
+function panel(g, title, sub){
+  g.fillStyle='#000'; g.fillRect(0,0,W,H);
+  g.fillStyle='#fff'; g.textAlign='center';
+  g.font='900 54px Georgia'; g.fillText(title, W/2, H*0.2);
+  if (sub){ g.font='700 20px Georgia'; g.fillText(sub, W/2, H*0.25); }
+}
+function centeredImg(g, key, maxH, cx, bottomY, white){
+  const src = IMG[key]; if (!src.width) return 0;
+  const im = white ? whiteOf(key) : src;
+  const s = Math.min(maxH/im.height, 1);
+  const w = im.width*s, h = im.height*s;
+  g.drawImage(im, cx-w/2, bottomY-h, w, h);
+  return w;
+}
+function renderLoading(g){
+  g.fillStyle='#000'; g.fillRect(0,0,W,H);
+  g.fillStyle='#fff'; g.font='900 30px Georgia'; g.textAlign='center';
+  g.fillText('调兵遣将中… '+loaded+'/'+toLoad, W/2, H/2);
+}
+function renderTitle(g){
+  g.fillStyle='#000'; g.fillRect(0,0,W,H);
+  g.strokeStyle='#fff'; g.lineWidth=4; g.strokeRect(12,12,W-24,H-24);
+  const cx0 = W*0.24, cy0 = H*0.46, r0 = Math.min(W,H)*0.19;
+  const moon = IMG.hero_moon;
+  if (moon.width){
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(cx0, cy0, r0, 0, TAU); g.fill();
+    g.drawImage(moon, cx0-155, cy0-127, 310, 255);
+    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(cx0, cy0, r0+8, 0, TAU); g.stroke();
+  }
+  g.textAlign='left'; g.fillStyle='#fff';
+  g.font='900 84px Georgia,"Songti SC",serif';
+  g.fillText('夜  贼', W*0.46, H*0.26);
+  g.font='700 20px "Courier New"';
+  g.fillText('T H E   B U R G L A R', W*0.465, H*0.315);
+  g.font='900 24px Georgia,"Songti SC",serif';
+  g.fillText('今夜，五间密室，满屋财宝。', W*0.465, H*0.42);
+  g.fillText('别被看见。', W*0.465, H*0.465);
+  g.font='700 16px Georgia';
+  g.fillText('你扮演 —— 礼帽绅士', W*0.465, H*0.535);
+  g.font='700 14px Georgia'; g.fillStyle='rgba(255,255,255,0.75)';
+  g.fillText('· 靠近宝物按住空格蓄力偷窃，动静会引来守卫', W*0.465, H*0.585);
+  g.fillText('· 唱机可以声东击西；台灯照亮周围', W*0.465, H*0.62);
+  g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.655);
+  if (S.blink%1 < 0.65){
+    g.fillStyle='#fff'; g.font='900 22px Georgia'; g.textAlign='center';
+    g.fillText('— 按 空格 开始潜行 —', W/2, H*0.86);
+  }
+  g.font='700 13px "Courier New"'; g.textAlign='right';
+  g.fillStyle='rgba(255,255,255,0.8)';
+  g.fillText('最高分 ¥'+S.best+'　　[WASD]移动 [Shift]潜行 [空格]偷窃 [R]重开 [P]暂停 [M]静音', W-24, H-20);
+}
+function renderPlay(g){
+  // ===== 场景层 =====
+  sceneG.setTransform(1,0,0,1,0,0);
+  sceneG.clearRect(0,0,W,H);
+  sceneG.save();
+  if (S.shake > 0.3) sceneG.translate((Math.random()-0.5)*S.shake, (Math.random()-0.5)*S.shake);
+  const M = staticCv._M || 0;
+  sceneG.drawImage(staticCv,
+    ISO.OX - (S.cam.u - staticCv._uMin)*ISO.kx - M,
+    ISO.OY - (S.cam.v - staticCv._vMin)*ISO.ky - M);
+  // 光圈陷阱 / 出口光池
+  for (const [gx,gy,gr] of (S.level.glows||[])){
+    const P = proj(gx,gy);
+    const r = gr*SC*0.42 * (1+0.06*Math.sin(S.t*3+gx));
+    sceneG.save(); sceneG.translate(P.x,P.y); sceneG.scale(1,0.62);
+    const rg = sceneG.createRadialGradient(0,0,2, 0,0,r);
+    rg.addColorStop(0,'rgba(255,255,255,0.7)'); rg.addColorStop(1,'rgba(255,255,255,0)');
+    sceneG.fillStyle = rg; sceneG.beginPath(); sceneG.arc(0,0,r,0,TAU); sceneG.fill();
+    sceneG.restore();
+    sceneG.strokeStyle = 'rgba(255,255,255,0.45)'; sceneG.lineWidth = 1; sceneG.setLineDash([4,4]);
+    sceneG.beginPath(); sceneG.ellipse(P.x,P.y,r,r*0.62,0,0,TAU); sceneG.stroke(); sceneG.setLineDash([]);
+  }
+  if (S.exitOpen){
+    const e = S.level.exit, P = proj(e.x+e.w/2, ROOM.y+ROOM.h+16);
+    sceneG.fillStyle = 'rgba(255,255,255,0.10)';
+    sceneG.beginPath(); sceneG.ellipse(P.x, P.y, 110, 36, 0, 0, TAU); sceneG.fill();
+  }
+  // 亮着的台灯：地面亮池 = 暴露危险区
+  for (const lp of S.lamps){
+    if (!lp.on) continue;
+    const P = proj(lp.x, lp.y);
+    sceneG.fillStyle = 'rgba(255,255,255,0.10)';
+    sceneG.beginPath(); sceneG.ellipse(P.x, P.y, 260*ISO.kx, 260*ISO.ky*1.1, 0, 0, TAU); sceneG.fill();
+    sceneG.strokeStyle = 'rgba(255,255,255,0.4)'; sceneG.lineWidth = 1; sceneG.setLineDash([4,4]);
+    sceneG.beginPath(); sceneG.ellipse(P.x, P.y, 260*ISO.kx, 260*ISO.ky*1.1, 0, 0, TAU); sceneG.stroke(); sceneG.setLineDash([]);
+  }
+  // 深度排序实体
+  const items = [];
+  const pd = S.player.x + S.player.y;
+  for (const w of S.level.walls) items.push({d:(2*(w[0]+w[1])+w[2]+w[3])/2, k:'box', w});
+  for (const f of S.level.furniture) items.push({d:(2*(f[0]+f[1])+f[2]+f[3])/2, k:'furn', f});
+  { const e = S.level.exit; items.push({d:(e.x+e.w/2)+(ROOM.y+ROOM.h-8), k:'exit'}); }
+  for (const t of S.treasures) if (!t.got) items.push({d:t.x+t.y, k:'tre', t});
+  for (const gd of S.gadgets) items.push({d:gd.x+gd.y, k:'gad', gd});
+  for (const lp of S.lamps) items.push({d:lp.x+lp.y, k:'lamp', lp});
+  for (const n of S.npcs) items.push({d:n.x+n.y, k:'npc', n});
+  for (const gd of S.guards) items.push({d:gd.x+gd.y, k:'gd', gd});
+  items.push({d:pd, k:'me'});
+  items.sort((a,b)=>a.d-b.d);
+  const head = proj(S.player.x, S.player.y - 30);
+  for (const it of items){
+    if (it.k==='box'){
+      const A=proj(it.w[0],it.w[1]), B=proj(it.w[0]+it.w[2],it.w[1]), C=proj(it.w[0]+it.w[2],it.w[1]+it.w[3]), D=proj(it.w[0],it.w[1]+it.w[3]);
+      const minX = Math.min(A.x,B.x,C.x,D.x), maxX = Math.max(A.x,B.x,C.x,D.x);
+      const minY = Math.min(A.y,B.y,C.y,D.y) - H_WALL, maxY = Math.max(A.y,B.y,C.y,D.y);
+      const occl = it.d > pd + 40 && head.x > minX && head.x < maxX && head.y > minY && head.y < maxY;
+      drawBox(sceneG, it.w[0], it.w[1], it.w[2], it.w[3], H_WALL, MAT_WALL, occl ? 0.22 : 1);
+    }
+    else if (it.k==='furn'){
+      const [x,y,w,h,kind] = it.f;
+      const H2 = (kind==='table'||kind==='bench'||kind==='sofa') ? H_LOW : H_TALL;
+      const A=proj(x,y), B=proj(x+w,y), C=proj(x+w,y+h), D=proj(x,y+h);
+      const minX = Math.min(A.x,B.x,C.x,D.x), maxX = Math.max(A.x,B.x,C.x,D.x);
+      const minY = Math.min(A.y,B.y,C.y,D.y) - H2, maxY = Math.max(A.y,B.y,C.y,D.y);
+      const occl = H2 > 14 && (2*(x+y)+w+h)/2 > pd + 40 && head.x > minX && head.x < maxX && head.y > minY && head.y < maxY;
+      drawBox(sceneG, x, y, w, h, H2, MAT_FURN, occl ? 0.25 : 1);
+      if (occl) continue;
+      if (kind==='safe'){
+        const pc = proj(x+w/2, y+h/2);
+        sceneG.strokeStyle = '#fff'; sceneG.lineWidth = 1.5;
+        sceneG.beginPath(); sceneG.arc(pc.x, pc.y-H2, 7, 0, TAU); sceneG.stroke();
+        sceneG.fillStyle = '#fff'; sceneG.beginPath(); sceneG.arc(pc.x, pc.y-H2, 2, 0, TAU); sceneG.fill();
+      }
+      if (kind==='coffin'){
+        const pc = proj(x+w/2, y+h/2);
+        sceneG.strokeStyle = 'rgba(255,255,255,0.6)'; sceneG.lineWidth = 1.5;
+        sceneG.beginPath(); sceneG.moveTo(pc.x-8, pc.y-H2); sceneG.lineTo(pc.x+8, pc.y-H2);
+        sceneG.moveTo(pc.x, pc.y-H2-7); sceneG.lineTo(pc.x, pc.y-H2+7); sceneG.stroke();
+      }
+    }
+    else if (it.k==='exit') drawExitDoor(sceneG);
+    else if (it.k==='tre') drawTreasure(sceneG, it.t);
+    else if (it.k==='gad') drawGadget(sceneG, it.gd);
+    else if (it.k==='lamp') drawLamp(sceneG, it.lp);
+    else if (it.k==='npc') drawNpc(sceneG, it.n);
+    else if (it.k==='gd') drawGuard(sceneG, it.gd);
+    else if (it.k==='me') drawPlayer(sceneG);
+  }
+  for (const gd of S.guards){
+    if (!gd.fixed && gd.susp > 0.08 && gd.state!=='chase') drawSight(sceneG, gd);
+  }
+  sceneG.restore();
+  // ===== 合成：场景 → 黑暗迷雾 → 光 =====
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+  ctx.save();
+  if (S.shake > 0.3) ctx.translate((Math.random()-0.5)*S.shake, (Math.random()-0.5)*S.shake);
+  ctx.drawImage(sceneCv, 0, 0);
+  // 黑暗迷雾：只留主角周围 + 亮着的台灯 + 光圈陷阱
+  fogG.setTransform(1,0,0,1,0,0);
+  fogG.clearRect(0,0,W,H);
+  fogG.fillStyle = 'rgba(0,0,0,0.96)';
+  fogG.fillRect(0,0,W,H);
+  fogG.globalCompositeOperation = 'destination-out';
+  const pp = proj(S.player.x, S.player.y);
+  let rg = fogG.createRadialGradient(pp.x, pp.y-10, 110, pp.x, pp.y-10, 360);
+  rg.addColorStop(0,'rgba(0,0,0,1)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+  fogG.fillStyle = rg;
+  fogG.beginPath(); fogG.ellipse(pp.x, pp.y-10, 360, 290, 0, 0, TAU); fogG.fill();
+  for (const lp of S.lamps){
+    if (!lp.on) continue;
+    const P = proj(lp.x, lp.y);
+    rg = fogG.createRadialGradient(P.x, P.y-30, 60, P.x, P.y-30, 330);
+    rg.addColorStop(0,'rgba(0,0,0,1)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+    fogG.fillStyle = rg;
+    fogG.beginPath(); fogG.ellipse(P.x, P.y-20, 330, 250, 0, 0, TAU); fogG.fill();
+  }
+  for (const [gx,gy,gr] of (S.level.glows||[])){
+    const P = proj(gx,gy);
+    rg = fogG.createRadialGradient(P.x, P.y, 10, P.x, P.y, gr*SC*0.42);
+    rg.addColorStop(0,'rgba(0,0,0,1)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+    fogG.fillStyle = rg;
+    fogG.beginPath(); fogG.ellipse(P.x, P.y, gr*SC*0.42, gr*SC*0.28, 0, 0, TAU); fogG.fill();
+  }
+  fogG.globalCompositeOperation = 'source-over';
+  ctx.drawImage(fogCv, 0, 0);
+  // 光：守卫灯光锥 + 远处守卫剪影 + 台灯光晕 + 出口 + 宝物闪光（穿透黑暗可见）
+  drawCones(ctx);
+  for (const gd of S.guards){
+    const P = proj(gd.x, gd.y);
+    const d = Math.hypot(P.x-pp.x, P.y-pp.y);
+    if (d > 380){
+      ctx.save(); ctx.globalAlpha = 0.75;
+      drawGuard(ctx, gd);
+      ctx.restore();
+    }
+  }
+  for (const lp of S.lamps){
+    if (!lp.on) continue;
+    const P = proj(lp.x, lp.y);
+    const fl = 0.8 + 0.2*Math.sin(S.t*9 + lp.x);
+    const rg2 = ctx.createRadialGradient(P.x, P.y-40, 4, P.x, P.y-40, 90);
+    rg2.addColorStop(0,`rgba(255,255,255,${0.5*fl})`); rg2.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle = rg2;
+    ctx.beginPath(); ctx.ellipse(P.x, P.y-20, 90, 52, 0, 0, TAU); ctx.fill();
+  }
+  for (const t of S.treasures){
+    if (t.got) continue;
+    const P = proj(t.x, t.y);
+    const tw = (Math.sin(S.t*4 + t.ph)+1)/2;
+    ctx.fillStyle = `rgba(255,255,255,${0.25+0.5*tw})`;
+    ctx.beginPath(); ctx.arc(P.x, P.y-10, 1.8, 0, TAU); ctx.fill();
+  }
+  { const e = S.level.exit;
+    const P = proj(e.x+e.w/2, ROOM.y+ROOM.h-8);
+    if (S.exitOpen){
+      const pulse = 0.6 + 0.3*Math.sin(S.t*5);
+      ctx.fillStyle = `rgba(255,255,255,${0.35*pulse})`;
+      ctx.beginPath(); ctx.ellipse(P.x, P.y-20, 90, 44, 0, 0, TAU); ctx.fill();
+    }
+  }
+  for (const gd of S.guards){
+    if (!gd.fixed && gd.susp > 0.08 && gd.state!=='chase') drawSight(ctx, gd);
+  }
+  ctx.restore();
+  // 噪点 + 暗角
+  ctx.save(); ctx.globalAlpha = 0.5; ctx.drawImage(noise, 0, 0, W, H); ctx.restore();
+  ctx.save();
+  ctx.globalAlpha = clamp(0.35 + 0.35*S.danger + (S.level.dark?0.12:0), 0, 0.9);
+  ctx.drawImage(vigCv, 0, 0);
+  ctx.restore();
+  drawHUD(ctx);
+  drawMinimap(ctx);
+  if (S.msgT > 0){
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0,58,W,30);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.beginPath(); ctx.moveTo(0,88.5); ctx.lineTo(W,88.5); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = '700 15px Georgia'; ctx.textAlign = 'center';
+    ctx.fillText(S.msg, W/2, 78);
+  }
+  if (S.paused){
+    ctx.fillStyle = 'rgba(0,0,0,0.88)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '900 60px Georgia';
+    ctx.fillText('暂 停', W/2, H/2);
+    ctx.font = '700 20px Georgia'; ctx.fillText('按 P 继续', W/2, H/2+44);
+  }
+}
+function renderClear(g){
+  panel(g, '得手！', S.level.name + ' · 战利品 ¥'+S.score);
+  centeredImg(g, 'hero_spy', 300, W/2, H*0.88, true);
+  g.fillStyle='#fff'; g.font='700 22px Georgia'; g.textAlign='center';
+  if (S.blink%1 < 0.65) g.fillText('按 空格 潜入下一间密室 →', W/2, H*0.95);
+}
+function renderCaught(g){
+  panel(g, '被抓住了！','还剩 '+Math.max(0,S.lives)+' 条命 · 本关战利品充公');
+  centeredImg(g, 'hero_reaper', 320, W/2, H*0.89, true);
+  if (S.blink%1 < 0.65){ g.fillStyle='#fff'; g.font='700 22px Georgia'; g.textAlign='center';
+    g.fillText('按 空格 重来这一夜', W/2, H*0.96); }
+}
+function renderGameOver(g){
+  panel(g, '夜行失败','最高分 ¥'+S.best);
+  g.fillStyle='#fff'; g.font='700 22px Georgia'; g.textAlign='center';
+  g.fillText('按 空格 回到起点', W/2, H*0.32);
+  const im = whiteOf('hero_moon'); if (im.width){
+    const r = Math.min(W,H)*0.24;
+    g.drawImage(im, W/2-r*1.1, H*0.42, r*2.2, r*1.8);
+  }
+}
+function renderWin(g){
+  panel(g, '完美得手！','五间密室 · 总战利品 ¥'+S.score+'　最高纪录 ¥'+S.best);
+  const im = whiteOf('hero_moon'); if (im.width){
+    const r = Math.min(W,H)*0.26;
+    g.drawImage(im, W/2-r*1.2, H*0.33, r*2.4, r*1.96);
+  }
+  if (S.blink%1 < 0.65){ g.fillStyle='#fff'; g.font='900 24px Georgia'; g.textAlign='center';
+    g.fillText('按 空格 再偷一次', W/2, H*0.93); }
+}
+
+/* ---------------- 主循环 ---------------- */
+let last = performance.now();
+function tick(now){
+  const dt = clamp((now-last)/1000, 0, 0.033); last = now;
+  S.t += dt; S.blink += dt;
+  if (S.msgT > 0) S.msgT -= dt;
+  if (S.flash > 0) S.flash -= dt;
+  S.shake = Math.max(0, S.shake - dt*18);
+  if (S.mode==='loading'){
+    if (loaded >= toLoad){
+      S.mode = 'title';
+      const q = new URLSearchParams(location.search);
+      if (q.has('lv')){
+        const lv = clamp(parseInt(q.get('lv'),10)||0, 0, LEVELS.length-1);
+        S.score = 0; S.lives = 3;
+        buildLevel(lv);
+      }
+    }
+    renderLoading(ctx); return;
+  }
+  if (S.mode==='title'){ renderTitle(ctx); return; }
+  if (S.mode==='play' && !S.paused){
+    updateCamera(dt);
+    playerUpdate(dt);
+    for (const gd of S.guards) guardUpdate(gd, dt);
+    for (const n of S.npcs) npcUpdate(n, dt);
+    for (const gd of S.gadgets) gd.cd = Math.max(0, gd.cd - dt);
+    let danger = 0;
+    for (const gd of S.guards){
+      danger = Math.max(danger, clamp(gd.susp,0,1)*0.9);
+      const d = dist(gd.x,gd.y,S.player.x,S.player.y);
+      danger = Math.max(danger, clamp(1 - d/380, 0, 1)*0.75*(gd.state==='chase'?1.3:1));
+    }
+    S.danger += (danger - S.danger) * Math.min(1, dt*4);
+    S.beatT -= dt;
+    if (S.danger > 0.2 && S.beatT <= 0){
+      sfx.heart(0.18 + 0.4*clamp(S.danger,0,1));
+      S.beatT = 1.32 - 0.9*clamp(S.danger,0,1);
+    }
+  } else {
+    S.danger += (0 - S.danger) * Math.min(1, dt*4);
+  }
+  if (S.mode==='play') renderPlay(ctx);
+  else if (S.mode==='clear') renderClear(ctx);
+  else if (S.mode==='caught') renderCaught(ctx);
+  else if (S.mode==='gameover') renderGameOver(ctx);
+  else if (S.mode==='win') renderWin(ctx);
+  if (S.flash > 0 && S.mode==='play'){
+    ctx.fillStyle = S.flash%0.2 < 0.1 ? '#fff' : '#000'; ctx.fillRect(0,0,W,H);
+  }
+  flushRelease();
+}
+function loop(now){ requestAnimationFrame(loop); tick(now); }
+
+function boot(){
+  fit();
+  requestAnimationFrame(loop);
+}
+addEventListener('resize', fit);
+boot();
+try{
+  const wc = "let id=null;onmessage=e=>{if(e.data==='start'&&!id){id=setInterval(()=>postMessage(0),33);}};";
+  const w = new Worker(URL.createObjectURL(new Blob([wc], {type:'application/javascript'})));
+  w.postMessage('start');
+  w.onmessage = ()=>{ const n = performance.now(); if (n - last > 70) tick(n); };
+}catch(e){}
+</script>
+</body>
+</html>
