@@ -99,6 +99,8 @@ const sfx = {
   ui(){ beep(520,.05,'square',.08); },
   lamp(){ beep(760,.06,'triangle',.15); setTimeout(()=>beep(950,.08,'triangle',.12),70); },
   radio(){ beep(720,.12,'triangle',.18); setTimeout(()=>beep(540,.18,'triangle',.16),130); },
+  throwCoin(){ beep(1046,.05,'sine',.12); setTimeout(()=>beep(1568,.06,'sine',.1),90); },
+  smoke(){ beep(220,.25,'sine',.14,-80); },
   growl(){ beep(72,.5,'sawtooth',.3,-40); },
   snort(){ beep(150,.07,'square',.12); setTimeout(()=>beep(120,.07,'square',.1),110); },
   // 第五人格式心跳：低频闷响"咚-咚"，音量与节奏随危险变化
@@ -125,7 +127,7 @@ addEventListener('keydown', e=>{
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
   const k = e.key.toLowerCase();
   keys[k] = true; delete pendingRelease[k];
-  onKey(k);
+  if (!e.repeat) onKey(k);          // 按住产生的自动重复不触发边缘动作
   ac() && AC.resume && AC.resume();
 });
 addEventListener('keyup', e=>{ pendingRelease[e.key.toLowerCase()] = true; });
@@ -216,9 +218,10 @@ const LEVELS = [
 /* ---------------- 状态 ---------------- */
 const S = { mode:'loading', lvIndex:0, level:null, guards:[], npcs:[], treasures:[], gadgets:[], lamps:[], player:null,
   score:0, lvStartScore:0, lives:3, t:0, best:+(localStorage.getItem('burglar_best')||0),
-  exitOpen:false, msg:'', msgT:0, flash:0, paused:false, blink:0, chaseBeep:0,
-  shake:0, danger:0, beatT:0, spaceEdge:false, trail:[], trailT:0,
-  cam:{u:0, v:0, init:false} };
+  exitOpen:false, msg:'', msgT:0, flash:0, paused:false, blink:0,
+  shake:0, danger:0, beatT:0, spaceEdge:false, qEdge:false, eEdge:false, trail:[], trailT:0,
+  cam:{u:0, v:0, init:false}, items:{smoke:1, coin:3}, smokes:[], coinFx:[],
+  lvTime:0, busted:0, musicT:0, musicStep:0 };
 const ALLY = [];
 window.__G = S; window.__BUILD = buildLevel;
 
@@ -265,6 +268,8 @@ function buildLevel(i){
   S.lvStartScore = S.score;
   S.exitOpen = false; S.msg=''; S.msgT=0; S.flash=0; S.shake=0; S.danger=0; S.beatT=0;
   S.trail.length = 0; S.trailT = 0; S.cam.init = false;
+  S.items = {smoke:1, coin:3}; S.smokes.length = 0; S.coinFx.length = 0;
+  S.lvTime = 0; S.busted = 0;
   buildStatic();
   S.mode = 'play';
   const q = new URLSearchParams(location.search);
@@ -328,6 +333,12 @@ function canSee(g, sneak){
   const vp = visParams(g);
   const d = dist(g.x,g.y,p.x,p.y);
   if (d > vp.R) return 0;
+  // 烟雾遮断视线
+  for (const s of S.smokes){
+    const vx = p.x-g.x, vy = p.y-g.y, L2 = vx*vx+vy*vy || 1;
+    let tt = ((s.x-g.x)*vx + (s.y-g.y)*vy)/L2; tt = clamp(tt,0,1);
+    if (dist(g.x+vx*tt, g.y+vy*tt, s.x, s.y) < 150) return 0;
+  }
   if (!g.fixed && (g.trait==='ghost' || g.trait==='phase')){
     if (g.trait==='phase'){
       const rel2 = Math.atan2(p.y-g.y, p.x-g.x);
@@ -382,6 +393,7 @@ function guardUpdate(g, dt){
   const p = S.player;
   g.scanT += dt;
   g.alertT = Math.max(0, (g.alertT||0) - dt);
+  g.bubbleShow = Math.max(0, (g.bubbleShow||0) - dt);
   g.rushT = Math.max(0, (g.rushT||0) - dt);
   g.msgCd = Math.max(0, (g.msgCd||0) - dt);
   const turn = g.trait==='slow' ? 1.6 : 6;
@@ -426,6 +438,12 @@ function guardUpdate(g, dt){
       if (g.state==='chase' && g.susp <= 0.05){ g.state='investigate'; g.waitT=4; }
     }
     if (g.state==='patrol'){
+      g.bubbleT = (g.bubbleT===undefined ? 4+Math.random()*8 : g.bubbleT) - dt;
+      if (g.bubbleT <= 0){
+        g.bubbleT = 9 + Math.random()*9;
+        const lines = MUTTERS[g.img];
+        if (lines && lines.length){ g.bubbleText = lines[(Math.random()*lines.length)|0]; g.bubbleShow = 2.6; }
+      }
       if (g.trait==='dart'){
         g.dartCd -= dt;
         if (g.dartCd <= 0 && !g.dart){
@@ -657,6 +675,25 @@ function playerUpdate(dt){
     }
   } else { S.exposeT = 0; }
   p.wasExposed = exposed;
+  // ===== 道具：烟雾弹 [Q] / 抛硬币 [E] =====
+  if (S.qEdge){
+    S.qEdge = false;
+    if (S.items.smoke > 0){
+      S.items.smoke--;
+      S.smokes.push({x:p.x, y:p.y, life:3.5, max:3.5});
+      sfx.smoke(); setMsg('烟雾弹！—— 遮断守卫的视线', 1.5);
+    }
+  }
+  if (S.eEdge){
+    S.eEdge = false;
+    if (S.items.coin > 0){
+      S.items.coin--;
+      const tx = clamp(p.x + Math.cos(p.ang)*240, ROOM.x+20, ROOM.x+ROOM.w-20);
+      const ty = clamp(p.y + Math.sin(p.ang)*240, ROOM.y+20, ROOM.y+ROOM.h-20);
+      S.coinFx.push({x0:p.x, y0:p.y, x1:tx, y1:ty, t:0, landed:false});
+      sfx.throwCoin(); setMsg('抛出一枚硬币……', 1);
+    }
+  }
   // 出口
   const e = S.level.exit;
   const left = S.treasures.filter(t=>!t.got).length;
@@ -671,11 +708,23 @@ const T_NAME = {coin:'一袋金币', gem:'黑钻', vase:'古董花瓶', crown:'�
 /* ---------------- 流程 ---------------- */
 function caught(){
   S.mode = 'caught'; sfx.caught(); S.lives--;
-  S.shake = 12;
+  S.shake = 12; S.busted++;
   if (S.lives < 0){ S.mode = 'gameover'; }
 }
+const PARS = [75, 90, 105, 120, 140];
 function levelClear(){
   S.mode = 'clear'; sfx.win();
+  S.rating = (S.busted === 0 && S.lvTime <= PARS[S.lvIndex]) ? 'S'
+           : (S.busted <= 1 && S.lvTime <= PARS[S.lvIndex]*1.5) ? 'A' : 'B';
+  try{
+    const rates = JSON.parse(localStorage.getItem('burglar_rates')||'{}');
+    const order = {S:3, A:2, B:1};
+    if (!rates[S.lvIndex] || order[S.rating] > order[rates[S.lvIndex]]){
+      rates[S.lvIndex] = S.rating;
+      localStorage.setItem('burglar_rates', JSON.stringify(rates));
+    }
+    S.bestRate = rates[S.lvIndex];
+  }catch(e){}
   if (S.lvIndex >= LEVELS.length-1){
     S.mode = 'win';
     if (S.score > S.best){ S.best = S.score; localStorage.setItem('burglar_best', S.best); }
@@ -691,6 +740,8 @@ function onKey(k){
   } else if (S.mode==='play'){
     if (k==='r'){ S.score = S.lvStartScore; buildLevel(S.lvIndex); sfx.ui(); }
     if (k===' ') S.spaceEdge = true;
+    if (k==='q') S.qEdge = true;
+    if (k==='e') S.eEdge = true;
     if (k==='g'){ S.treasures.forEach(t=>t.got=true); S.exitOpen=true; sfx.door(); setMsg('出口打开了',1.5); }
   } else if (S.mode==='clear'){
     if (k===' '){ buildLevel(S.lvIndex+1); sfx.ui(); }
@@ -1005,11 +1056,53 @@ function drawExitDoor(g){
   }
 }
 
+const MUTTERS = {
+  mob_cat:['今晚真安静…','喵。'],
+  mob_samurai:['……'],
+  mob_monkey:['吱吱！','唧唧唧！'],
+  mob_bear:['（沉重的呼吸声）'],
+  mob_skeleton:['咔、咔咔…'],
+  mob_serpent:['嘶——'],
+  mob_dragon:['（三个头同时低吼）'],
+  mob_hound1:['嗅嗅…'], mob_hound2:['嗅嗅…']
+};
+// 光源投影：角色站在灯光里会拖出影子
+function drawCastShadow(g, cx, cy){
+  let src = null, srcD = 1e9;
+  for (const gd of S.guards){
+    if (gd.x===cx && gd.y===cy) continue;
+    const vp2 = visParams(gd);
+    const d = dist(gd.x,gd.y,cx,cy);
+    if (d < vp2.R*0.9 && d > 1){
+      const rel = Math.atan2(cy-gd.y, cx-gd.x);
+      const diff = Math.abs(((rel-gd.ang+Math.PI)%TAU+TAU)%TAU-Math.PI);
+      if ((diff < Math.max(gd.fov/2, 0.25) || gd.fov >= 6) && d < srcD){ src = gd; srcD = d; }
+    }
+  }
+  for (const lp of S.lamps){
+    if (!lp.on) continue;
+    const d = dist(lp.x,lp.y,cx,cy);
+    if (d < 250 && d < srcD){ src = lp; srcD = d; }
+  }
+  if (!src) return;
+  const a = Math.atan2(cy-src.y, cx-src.x);
+  const strength = clamp(1 - srcD/300, 0.15, 1);
+  const len = 12 + 44*strength;
+  const dxs = (Math.cos(a)-Math.sin(a))*ISO.kx, dys = (Math.cos(a)+Math.sin(a))*ISO.ky;
+  const P = proj(cx, cy);
+  g.save();
+  g.translate(P.x, P.y); g.rotate(Math.atan2(dys, dxs));
+  g.fillStyle = `rgba(0,0,0,${0.5*strength})`;
+  g.beginPath(); g.ellipse(len*0.55, 0, len*0.8, 9, 0, 0, TAU); g.fill();
+  g.restore();
+}
+
 function drawGuard(g, gd){
   const im = rimOf(gd.img);
   const hgt = gd.img==='mob_face' ? 74 : 62;
   const wid = (im.width-10)/im.height*hgt;
   const P = proj(gd.x, gd.y);
+  drawCastShadow(g, gd.x, gd.y);
   g.fillStyle = 'rgba(255,255,255,0.07)';
   g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.3, 7, 0, 0, TAU); g.fill();
   const chase = gd.state==='chase';
@@ -1036,12 +1129,23 @@ function drawGuard(g, gd){
     g.beginPath(); g.arc(P.x, P.y-hgt-14, 10, 0, TAU); g.fill();
     g.fillStyle = '#000'; g.font='900 15px Georgia'; g.textAlign='center'; g.fillText('!', P.x, P.y-hgt-9);
   }
+  if (gd.bubbleShow > 0 && gd.bubbleText){
+    g.font = '700 11px Georgia';
+    const wtxt = g.measureText(gd.bubbleText).width + 14;
+    const by = P.y - hgt - 30;
+    g.fillStyle = '#fff';
+    g.fillRect(P.x-wtxt/2, by-12, wtxt, 18);
+    g.beginPath(); g.moveTo(P.x-4, by+6); g.lineTo(P.x+4, by+6); g.lineTo(P.x, by+12); g.closePath(); g.fill();
+    g.fillStyle = '#000'; g.textAlign = 'center';
+    g.fillText(gd.bubbleText, P.x, by+1);
+  }
 }
 
 function drawNpc(g, n){
   const im = rimOf(n.img);
   const hgt = 46, wid = (im.width-10)/im.height*hgt;
   const P = proj(n.x, n.y);
+  drawCastShadow(g, n.x, n.y);
   g.fillStyle = 'rgba(255,255,255,0.05)';
   g.beginPath(); g.ellipse(P.x, P.y+3, wid*0.26, 5, 0, 0, TAU); g.fill();
   g.save(); g.globalAlpha = 0.55;
@@ -1064,6 +1168,7 @@ function drawPlayer(g){
   const wid = (im.width-10)/im.height*hgt;
   const P = proj(p.x, p.y);
   const bob = p.moving ? Math.abs(Math.sin(p.anim))*3 : 0;
+  drawCastShadow(g, p.x, p.y);
   const a = 0.10 + 0.04*Math.sin(S.t*5);
   g.fillStyle = `rgba(255,255,255,${a})`;
   g.beginPath(); g.ellipse(P.x, P.y, 27, 12, 0, 0, TAU); g.fill();
@@ -1141,6 +1246,8 @@ function drawHUD(g){
   g.fillText(left>0 ? '还差 '+left+' 件' : '得手！去EXIT', 190, 35);
   g.font = '700 14px Georgia';
   g.fillText(S.level ? S.level.name : '', 330, 35);
+  g.font = '700 11px "Courier New"';
+  g.fillText('烟雾×'+S.items.smoke+'[Q] · 硬币×'+S.items.coin+'[E]', 332, 49);
   for (let i=0;i<3;i++){
     const x = 520+i*32;
     g.fillStyle = i < S.lives ? '#fff' : 'rgba(255,255,255,0.15)';
@@ -1199,7 +1306,8 @@ function renderTitle(g){
   g.font='700 14px Georgia'; g.fillStyle='rgba(255,255,255,0.75)';
   g.fillText('· 靠近宝物按住空格蓄力偷窃，动静会引来守卫', W*0.465, H*0.585);
   g.fillText('· 唱机可以声东击西；台灯照亮周围', W*0.465, H*0.62);
-  g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.655);
+  g.fillText('· Q 烟雾弹遮断视线 · E 抛硬币引开守卫', W*0.465, H*0.655);
+  g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.69);
   if (S.blink%1 < 0.65){
     g.fillStyle='#fff'; g.font='900 22px Georgia'; g.textAlign='center';
     g.fillText('— 按 空格 开始潜行 —', W/2, H*0.86);
@@ -1334,6 +1442,32 @@ function renderPlay(g){
   }
   fogG.globalCompositeOperation = 'source-over';
   ctx.drawImage(fogCv, 0, 0);
+  // 烟雾（盖在迷雾上，遮断视线）
+  for (const s of S.smokes){
+    const P = proj(s.x, s.y);
+    const gr = s.life/s.max;
+    const r = 150*ISO.kx*(0.7 + 0.5*(1-gr)) + 24;
+    const alpha = Math.min(1, gr*3) * 0.85;
+    const rg2 = ctx.createRadialGradient(P.x, P.y-20, 6, P.x, P.y-20, r);
+    rg2.addColorStop(0, `rgba(225,225,225,${0.9*alpha})`);
+    rg2.addColorStop(1, 'rgba(225,225,225,0)');
+    ctx.fillStyle = rg2;
+    ctx.beginPath(); ctx.ellipse(P.x, P.y-16, r, r*0.72, 0, 0, TAU); ctx.fill();
+  }
+  // 硬币飞行与落点涟漪
+  for (const fx of S.coinFx){
+    const tt = Math.min(1, fx.t);
+    const x = fx.x0 + (fx.x1-fx.x0)*tt, y = fx.y0 + (fx.y1-fx.y0)*tt - Math.sin(tt*Math.PI)*50;
+    const P = proj(x, y);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(P.x, P.y-18, 3.5, 0, TAU); ctx.fill();
+    if (fx.landed){
+      const Pl = proj(fx.x1, fx.y1);
+      const rp = (fx.t-1)/0.4;
+      ctx.strokeStyle = `rgba(255,255,255,${0.6*(1-rp)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(Pl.x, Pl.y, 14+rp*70, (14+rp*70)*0.42, 0, 0, TAU); ctx.stroke();
+    }
+  }
   // 光：守卫灯光锥 + 远处守卫剪影 + 台灯光晕 + 出口 + 宝物闪光（穿透黑暗可见）
   drawCones(ctx);
   for (const gd of S.guards){
@@ -1397,7 +1531,11 @@ function renderPlay(g){
 }
 function renderClear(g){
   panel(g, '得手！', S.level.name + ' · 战利品 ¥'+S.score);
-  centeredImg(g, 'hero_spy', 300, W/2, H*0.88, true);
+  g.fillStyle='#fff'; g.font='900 30px Georgia'; g.textAlign='center';
+  g.fillText('本关评价 ' + (S.rating||'B'), W/2, H*0.335);
+  g.font='700 15px Georgia'; g.fillStyle='rgba(255,255,255,0.75)';
+  g.fillText('用时 '+Math.round(S.lvTime)+'s · 被发现 '+S.busted+' 次 · 该关最佳 '+(S.bestRate||S.rating||'B'), W/2, H*0.385);
+  centeredImg(g, 'hero_spy', Math.min(300, H*0.42), W/2, H*0.88, true);
   g.fillStyle='#fff'; g.font='700 22px Georgia'; g.textAlign='center';
   if (S.blink%1 < 0.65) g.fillText('按 空格 潜入下一间密室 →', W/2, H*0.95);
 }
@@ -1453,6 +1591,24 @@ function tick(now){
     for (const gd of S.guards) guardUpdate(gd, dt);
     for (const n of S.npcs) npcUpdate(n, dt);
     for (const gd of S.gadgets) gd.cd = Math.max(0, gd.cd - dt);
+    for (const s of S.smokes) s.life -= dt;
+    S.smokes = S.smokes.filter(s=>s.life > 0);
+    for (const fx of S.coinFx){
+      fx.t += dt*2.2;
+      if (fx.t >= 1 && !fx.landed){ fx.landed = true; guardAlert(fx.x1, fx.y1); sfx.ask(); }
+    }
+    S.coinFx = S.coinFx.filter(f=>f.t < 1.4);
+    // 追逐低音 BGM：随危险度渐强的低音脉冲
+    if (S.danger > 0.3){
+      S.musicT -= dt;
+      if (S.musicT <= 0){
+        S.musicT = S.danger > 0.75 ? 0.24 : 0.46;
+        S.musicStep++;
+        beep(S.musicStep%2 ? 82.4 : 61.7, 0.13, 'triangle', 0.05 + S.danger*0.09);
+        if (S.danger > 0.85 && S.musicStep%4===3) beep(1244, 0.05, 'sine', 0.045);
+      }
+    }
+    S.lvTime += dt;
     let danger = 0;
     for (const gd of S.guards){
       danger = Math.max(danger, clamp(gd.susp,0,1)*0.9);
