@@ -128,8 +128,8 @@ const joy = { id:null, ox:0, oy:0, dx:0, dy:0 };
 const btnSneak = { id:null };
 const btnAct = { id:null };
 addEventListener('keydown', e=>{
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
-  const k = e.key.toLowerCase();
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Tab'].includes(e.key)) e.preventDefault();
+  const k = e.key === 'Tab' ? 'tab' : e.key.toLowerCase();
   keys[k] = true; delete pendingRelease[k];
   if (!e.repeat) onKey(k);          // 按住产生的自动重复不触发边缘动作
   ac() && AC.resume && AC.resume();
@@ -918,8 +918,13 @@ function levelClear(){
 function onKey(k){
   if (S.mode==='loading') return;
   if (k==='m'){ muted = !muted; setMsg(muted?'已静音':'声音开启',1); }
-  if (k==='a'){ S.showAch = !S.showAch; }
-  if (k==='p' && (S.mode==='play')){ S.paused = !S.paused; sfx.ui(); }
+  // 成就面板：Tab 任何界面可用；A 仅在非游戏界面（避免与向左移动冲突）
+  if (k==='tab' || (k==='a' && S.mode!=='play')){
+    S.showAch = !S.showAch;
+    if (S.mode==='play') S.paused = S.showAch;    // 游戏中打开面板自动暂停
+    sfx.ui();
+  }
+  if (k==='p' && (S.mode==='play') && !S.showAch){ S.paused = !S.paused; sfx.ui(); }
   if (S.mode==='title'){
     if (k===' '){ S.score=0; S.lives=3; S.daily=false; buildLevel(0); sfx.ui(); }
     if (k==='d'){ S.score=0; S.lives=3; S.daily=true; buildLevel((new Date().getDate())%LEVELS.length); sfx.ui(); }
@@ -1538,7 +1543,7 @@ function renderTitle(g){
   g.fillText('· 唱机可以声东击西；台灯照亮周围', W*0.465, H*0.62);
   g.fillText('· Q 烟雾弹遮断视线 · E 抛硬币引开守卫', W*0.465, H*0.655);
   g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.69);
-  g.fillText('· D 每日挑战 · A 成就面板 · 触屏：左半屏拖动移动', W*0.465, H*0.725);
+  g.fillText('· D 每日挑战 · Tab 成就面板 · 触屏：左半屏拖动移动', W*0.465, H*0.725);
   if (S.blink%1 < 0.65){
     g.fillStyle='#fff'; g.font='900 22px Georgia'; g.textAlign='center';
     g.fillText('— 按 空格 开始潜行 —', W/2, H*0.86);
@@ -1943,7 +1948,7 @@ function tick(now){
       ctx.fillText(a.desc + (has?'　— 已解锁':''), W/2-205, y);
     });
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '700 16px Georgia';
-    if (S.blink%1 < 0.65) ctx.fillText('按 A 返回', W/2, H-44);
+    if (S.blink%1 < 0.65) ctx.fillText('按 Tab 返回', W/2, H-44);
   }
   flushRelease();
 }
