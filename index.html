@@ -123,6 +123,10 @@ const sfx = {
 
 /* ---------------- 输入 ---------------- */
 const keys = {}; const pendingRelease = {};
+let touchUI = false;
+const joy = { id:null, ox:0, oy:0, dx:0, dy:0 };
+const btnSneak = { id:null };
+const btnAct = { id:null };
 addEventListener('keydown', e=>{
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
   const k = e.key.toLowerCase();
@@ -132,12 +136,52 @@ addEventListener('keydown', e=>{
 });
 addEventListener('keyup', e=>{ pendingRelease[e.key.toLowerCase()] = true; });
 function flushRelease(){ for (const k in pendingRelease){ keys[k] = false; delete pendingRelease[k]; } }
+// 触屏：虚拟摇杆 + 按钮
+function ptPos(e){ const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+cv.addEventListener('pointerdown', e=>{
+  touchUI = true;
+  const p = ptPos(e);
+  const bS = btnSneakPos(), bA = btnActPos();
+  const inB = b => Math.hypot(p.x-b.x, p.y-b.y) < b.r + 12;
+  if (S.mode==='play'){
+    if (inB(bS)){ btnSneak.id = e.pointerId; keys['shift'] = true; delete pendingRelease['shift']; }
+    else if (inB(bA)){ btnAct.id = e.pointerId; keys[' '] = true; delete pendingRelease[' ']; S.spaceEdge = true; }
+    else if (p.x < W*0.55 && joy.id === null){ joy.id = e.pointerId; joy.ox = p.x; joy.oy = p.y; joy.dx = 0; joy.dy = 0; }
+  } else {
+    onKey(' ');
+  }
+  e.preventDefault();
+});
+cv.addEventListener('pointermove', e=>{
+  if (e.pointerId === joy.id){
+    const p = ptPos(e);
+    joy.dx = clamp(p.x - joy.ox, -60, 60);
+    joy.dy = clamp(p.y - joy.oy, -60, 60);
+  }
+});
+function ptEnd(e){
+  if (e.pointerId === joy.id){ joy.id = null; joy.dx = 0; joy.dy = 0; }
+  if (e.pointerId === btnSneak.id){ btnSneak.id = null; pendingRelease['shift'] = true; }
+  if (e.pointerId === btnAct.id){ btnAct.id = null; pendingRelease[' '] = true; }
+}
+cv.addEventListener('pointerup', ptEnd);
+cv.addEventListener('pointercancel', ptEnd);
 const ax = ()=>{
+  if (joy.id !== null){
+    const mag = Math.hypot(joy.dx, joy.dy);
+    if (mag > 10){
+      const k = Math.min(1, mag/60)/mag;
+      return [joy.dx*k, joy.dy*k];
+    }
+    return [0,0];
+  }
   let x = (keys['arrowright']||keys['d']?1:0) - (keys['arrowleft']||keys['a']?1:0);
   let y = (keys['arrowdown']||keys['s']?1:0) - (keys['arrowup']||keys['w']?1:0);
   if (x&&y){ x*=0.7071; y*=0.7071; }
   return [x,y];
 };
+function btnSneakPos(){ return { x: W-78, y: H-78, r: 42 }; }
+function btnActPos(){ return { x: W-180, y: H-56, r: 34 }; }
 
 /* ---------------- 关卡数据（原始坐标，构建时放大 SC 倍） ---------------- */
 const SC = 1.9;
@@ -270,6 +314,17 @@ function buildLevel(i){
   S.trail.length = 0; S.trailT = 0; S.cam.init = false;
   S.items = {smoke:1, coin:3}; S.smokes.length = 0; S.coinFx.length = 0;
   S.lvTime = 0; S.busted = 0;
+  // 开场运镜路径：大门 → 首个守卫 → 出生点
+  const ec = {x: sp(L.exit.x)+sp(L.exit.w)/2, y: sp(L.exit.y)+40};
+  const g0 = L.guards[0];
+  const g0p = g0.fixed ? [sp(g0.fixed.x), sp(g0.fixed.y)]
+            : (g0.path && g0.path[0]) ? [sp(g0.path[0][0]), sp(g0.path[0][1])]
+            : [sp(480), sp(420)];
+  const gp = [g0p[0], g0p[1]];
+  const st = {x: sp(L.start.x), y: sp(L.start.y)};
+  const uv = p => ({u: p.x - p.y, v: p.x + p.y - 70});
+  S.flyPath = [uv(ec), uv({x:gp[0], y:gp[1]}), uv(st)];
+  S.flyover = 2.8;
   buildStatic();
   S.mode = 'play';
   const q = new URLSearchParams(location.search);
@@ -508,7 +563,28 @@ function guardUpdate(g, dt){
           g.ang = lerpAng(g.ang, ta, Math.min(1, dt*turn));
           const rs = g.speed * (g.rushT > 0 ? 2.0 : 1.35);
           g.x += Math.cos(g.ang)*rs*dt; g.y += Math.sin(g.ang)*rs*dt;
-        } else { g.lastSeen = null; }
+        } else {
+          // 到达目击点：在附近生成 2 个搜索点逐个排查
+          g.lastSeen = null;
+          const m = ROOM.t + 30;
+          g.searchQueue = [];
+          for (let i=0;i<2;i++){
+            g.searchQueue.push([ clamp(g.x + (Math.random()-0.5)*380, ROOM.x+m, ROOM.x+ROOM.w-m),
+                                 clamp(g.y + (Math.random()-0.5)*380, ROOM.y+m, ROOM.y+ROOM.h-m) ]);
+          }
+          g.searchWait = 0.5;
+        }
+      } else if (g.searchQueue && g.searchQueue.length){
+        if (g.searchWait > 0){ g.searchWait -= dt; g.ang += dt*2.5; }
+        else {
+          const sx = g.searchQueue[0][0], sy = g.searchQueue[0][1];
+          const d = dist(g.x,g.y,sx,sy);
+          if (d > 12){
+            const ta = Math.atan2(sy-g.y, sx-g.x);
+            g.ang = lerpAng(g.ang, ta, Math.min(1, dt*4));
+            g.x += Math.cos(g.ang)*g.speed*dt; g.y += Math.sin(g.ang)*g.speed*dt;
+          } else { g.searchQueue.shift(); g.searchWait = 0.5; }
+        }
       } else {
         g.waitT -= dt;
         g.ang += dt*1.2;
@@ -738,6 +814,7 @@ function onKey(k){
     if (k===' '){ S.score=0; S.lives=3; buildLevel(0); sfx.ui(); }
     if (k>='1' && k<='5'){ S.score=0; S.lives=3; buildLevel(parseInt(k,10)-1); sfx.ui(); }
   } else if (S.mode==='play'){
+    if (S.flyover > 0){ S.flyover = 0.01; S.cam.init = false; return; }   // 任意键跳过开场运镜
     if (k==='r'){ S.score = S.lvStartScore; buildLevel(S.lvIndex); sfx.ui(); }
     if (k===' ') S.spaceEdge = true;
     if (k==='q') S.qEdge = true;
@@ -864,6 +941,20 @@ function updateCamera(dt){
   tv = (vMax-vMin < 2*halfV) ? (vMin+vMax)/2 - 60 : clamp(tv, vMin+halfV, vMax-halfV);
   if (!S.cam.init){ S.cam.u = tu; S.cam.v = tv; S.cam.init = true; }
   else { S.cam.u += (tu-S.cam.u)*Math.min(1, dt*5); S.cam.v += (tv-S.cam.v)*Math.min(1, dt*5); }
+}
+function flyoverCamera(){
+  const t01 = clamp(1 - S.flyover/2.8, 0, 1);
+  const path = S.flyPath;
+  let pos;
+  if (t01 < 0.45){
+    const k = t01/0.45;
+    pos = { u: path[0].u + (path[1].u-path[0].u)*k, v: path[0].v + (path[1].v-path[0].v)*k };
+  } else {
+    const k = (t01-0.45)/0.55;
+    const e = 1-(1-k)*(1-k);                      // 减速滑向出生点
+    pos = { u: path[1].u + (path[2].u-path[1].u)*e, v: path[1].v + (path[2].v-path[1].v)*e };
+  }
+  S.cam.u = pos.u; S.cam.v = pos.v; S.cam.init = true;
 }
 
 function conePath(g, gd, R){
@@ -1308,6 +1399,7 @@ function renderTitle(g){
   g.fillText('· 唱机可以声东击西；台灯照亮周围', W*0.465, H*0.62);
   g.fillText('· Q 烟雾弹遮断视线 · E 抛硬币引开守卫', W*0.465, H*0.655);
   g.fillText('· 每只怪物各有习性：环视、突刺、冲锋、循迹、穿墙…', W*0.465, H*0.69);
+  g.fillText('· 触屏可玩：左半屏拖动移动，右下按钮潜行/行动', W*0.465, H*0.725);
   if (S.blink%1 < 0.65){
     g.fillStyle='#fff'; g.font='900 22px Georgia'; g.textAlign='center';
     g.fillText('— 按 空格 开始潜行 —', W/2, H*0.86);
@@ -1515,6 +1607,34 @@ function renderPlay(g){
   ctx.restore();
   drawHUD(ctx);
   drawMinimap(ctx);
+  // 触屏 UI
+  if (touchUI){
+    if (joy.id !== null){
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(joy.ox, joy.oy, 56, 0, TAU); ctx.stroke();
+      const mag = Math.min(56, Math.hypot(joy.dx, joy.dy));
+      const ja = Math.atan2(joy.dy, joy.dx);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(joy.ox + Math.cos(ja)*mag, joy.oy + Math.sin(ja)*mag, 22, 0, TAU); ctx.fill();
+    }
+    const bS = btnSneakPos(), bA = btnActPos();
+    ctx.fillStyle = btnSneak.id !== null ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.16)';
+    ctx.beginPath(); ctx.arc(bS.x, bS.y, bS.r, 0, TAU); ctx.fill();
+    ctx.fillStyle = btnSneak.id !== null ? '#000' : '#fff';
+    ctx.font = '900 15px Georgia'; ctx.textAlign = 'center'; ctx.fillText('潜行', bS.x, bS.y+5);
+    ctx.fillStyle = btnAct.id !== null ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.16)';
+    ctx.beginPath(); ctx.arc(bA.x, bA.y, bA.r, 0, TAU); ctx.fill();
+    ctx.fillStyle = btnAct.id !== null ? '#000' : '#fff';
+    ctx.fillText('行动', bA.x, bA.y+5);
+  }
+  // 开场运镜提示
+  if (S.flyover > 0){
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(W/2-170, 100, 340, 30);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.strokeRect(W/2-170, 100, 340, 30);
+    ctx.fillStyle = '#fff'; ctx.font = '900 15px Georgia'; ctx.textAlign = 'center';
+    ctx.fillText('侦察中 · 任意键跳过', W/2, 120);
+  }
   if (S.msgT > 0){
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0,58,W,30);
     ctx.strokeStyle = 'rgba(255,255,255,0.3)';
@@ -1586,40 +1706,46 @@ function tick(now){
   }
   if (S.mode==='title'){ renderTitle(ctx); return; }
   if (S.mode==='play' && !S.paused){
-    updateCamera(dt);
-    playerUpdate(dt);
-    for (const gd of S.guards) guardUpdate(gd, dt);
-    for (const n of S.npcs) npcUpdate(n, dt);
-    for (const gd of S.gadgets) gd.cd = Math.max(0, gd.cd - dt);
-    for (const s of S.smokes) s.life -= dt;
-    S.smokes = S.smokes.filter(s=>s.life > 0);
-    for (const fx of S.coinFx){
-      fx.t += dt*2.2;
-      if (fx.t >= 1 && !fx.landed){ fx.landed = true; guardAlert(fx.x1, fx.y1); sfx.ask(); }
-    }
-    S.coinFx = S.coinFx.filter(f=>f.t < 1.4);
-    // 追逐低音 BGM：随危险度渐强的低音脉冲
-    if (S.danger > 0.3){
-      S.musicT -= dt;
-      if (S.musicT <= 0){
-        S.musicT = S.danger > 0.75 ? 0.24 : 0.46;
-        S.musicStep++;
-        beep(S.musicStep%2 ? 82.4 : 61.7, 0.13, 'triangle', 0.05 + S.danger*0.09);
-        if (S.danger > 0.85 && S.musicStep%4===3) beep(1244, 0.05, 'sine', 0.045);
+    if (S.flyover > 0){
+      S.flyover -= dt;
+      flyoverCamera();
+    } else {
+      if (!S.cam.init) S.cam.init = true;
+      updateCamera(dt);
+      playerUpdate(dt);
+      for (const gd of S.guards) guardUpdate(gd, dt);
+      for (const n of S.npcs) npcUpdate(n, dt);
+      for (const gd of S.gadgets) gd.cd = Math.max(0, gd.cd - dt);
+      for (const s of S.smokes) s.life -= dt;
+      S.smokes = S.smokes.filter(s=>s.life > 0);
+      for (const fx of S.coinFx){
+        fx.t += dt*2.2;
+        if (fx.t >= 1 && !fx.landed){ fx.landed = true; guardAlert(fx.x1, fx.y1); sfx.ask(); }
       }
-    }
-    S.lvTime += dt;
-    let danger = 0;
-    for (const gd of S.guards){
-      danger = Math.max(danger, clamp(gd.susp,0,1)*0.9);
-      const d = dist(gd.x,gd.y,S.player.x,S.player.y);
-      danger = Math.max(danger, clamp(1 - d/380, 0, 1)*0.75*(gd.state==='chase'?1.3:1));
-    }
-    S.danger += (danger - S.danger) * Math.min(1, dt*4);
-    S.beatT -= dt;
-    if (S.danger > 0.2 && S.beatT <= 0){
-      sfx.heart(0.18 + 0.4*clamp(S.danger,0,1));
-      S.beatT = 1.32 - 0.9*clamp(S.danger,0,1);
+      S.coinFx = S.coinFx.filter(f=>f.t < 1.4);
+      // 追逐低音 BGM：随危险度渐强的低音脉冲
+      if (S.danger > 0.3){
+        S.musicT -= dt;
+        if (S.musicT <= 0){
+          S.musicT = S.danger > 0.75 ? 0.24 : 0.46;
+          S.musicStep++;
+          beep(S.musicStep%2 ? 82.4 : 61.7, 0.13, 'triangle', 0.05 + S.danger*0.09);
+          if (S.danger > 0.85 && S.musicStep%4===3) beep(1244, 0.05, 'sine', 0.045);
+        }
+      }
+      S.lvTime += dt;
+      let danger = 0;
+      for (const gd of S.guards){
+        danger = Math.max(danger, clamp(gd.susp,0,1)*0.9);
+        const d = dist(gd.x,gd.y,S.player.x,S.player.y);
+        danger = Math.max(danger, clamp(1 - d/380, 0, 1)*0.75*(gd.state==='chase'?1.3:1));
+      }
+      S.danger += (danger - S.danger) * Math.min(1, dt*4);
+      S.beatT -= dt;
+      if (S.danger > 0.2 && S.beatT <= 0){
+        sfx.heart(0.18 + 0.4*clamp(S.danger,0,1));
+        S.beatT = 1.32 - 0.9*clamp(S.danger,0,1);
+      }
     }
   } else {
     S.danger += (0 - S.danger) * Math.min(1, dt*4);
