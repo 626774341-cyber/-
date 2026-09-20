@@ -1,18 +1,4 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>夜贼 THE BURGLAR · 复刻版</title>
-<style>
-  html,body{margin:0;padding:0;background:#000;color:#fff;height:100%;overflow:hidden;}
-  body{font-family:Georgia,"Songti SC","SimSun",serif;}
-  canvas{display:block;position:fixed;inset:0;touch-action:none;}
-</style>
-</head>
-<body>
-<canvas id="cv"></canvas>
-<script>
+
 'use strict';
 /* ============================================================
    夜贼 THE BURGLAR · 复刻版
@@ -2152,13 +2138,3 @@ function loop(now){ requestAnimationFrame(loop); tick(now); }
 fit();
 addEventListener('resize', fit);
 requestAnimationFrame(loop);
-// 保活：标签页被节流（后台/内嵌视口）导致 rAF 停摆时，由 Worker 兜底驱动主循环
-try{
-  const wc = "let id=null;onmessage=e=>{if(e.data==='start'&&!id){id=setInterval(()=>postMessage(0),33);}};";
-  const w = new Worker(URL.createObjectURL(new Blob([wc], {type:'application/javascript'})));
-  w.postMessage('start');
-  w.onmessage = ()=>{ const n = performance.now(); if (n - last > 45) tick(n); };
-}catch(e){}
-</script>
-</body>
-</html>
